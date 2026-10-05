@@ -70,9 +70,12 @@ export const dokumenResume = {
     'Nomor: RME/2025/0514/007Nama: Budi Santoso · RM 00-12-34 NIK: 32XXXXXXXXXX · IHS P024783755348 Tanggal: 14 Mei 2025 · Poli Jantung · dr. Andi',
   ringkasan:
     'Diagnosis utama: I50.0 — Congestive heart failure. Pasien datang dengan keluhan sesak ±2 hari disertai batuk. Pemeriksaan: TD 140/90 mmHg, nadi 88/menit, suhu 36,8 °C. Dilakukan evaluasi klinis dan pemeriksaan penunjang sesuai indikasi.',
+  terapi:
+    'Terapi pulang: furosemid 40 mg, 1×1 selama 7 hari. Edukasi kepatuhan obat dan tanda bahaya diberikan kepada pasien. Kontrol 21 Mei 2025 di Poli Jantung.',
   penutup: 'Pasien dan keluarga telah memahami informasi serta instruksi tindak lanjut.',
   dpjp: 'dr. Andi, Sp.JP',
   esign: '✓ e-Sign BSrE · 14 Mei 2025 09:32 WIB',
+  ttdLabel: 'Dokter penanggung jawab',
   kaki: 'LOINC 18842-5 · DocumentReference · Halaman 1 dari 1',
 }
 
