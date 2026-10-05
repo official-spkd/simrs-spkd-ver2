@@ -1,0 +1,38 @@
+/* Design tokens — diambil dari file Figma "simrs-spkd" */
+:root {
+  /* Warna dasar */
+  --c-primary: #1762c4;
+  --c-primary-soft: #eaf2ff;
+  --c-primary-tint: #dceaff;
+  --c-navy: #102d50;
+  --c-navy-muted: #ccdef3;
+  --c-text: #172b45;
+  --c-muted: #607187;
+  --c-border: #dee6ef;
+  --c-bg: #f3f6fa;
+  --c-surface: #ffffff;
+  --c-row-alt: #fafcfe;
+
+  /* Status */
+  --c-success: #15734b;
+  --c-success-soft: #e9f7ef;
+  --c-warning: #946000;
+  --c-warning-soft: #fff5da;
+  --c-danger: #b52c39;
+  --c-danger-soft: #fdedf0;
+
+  /* Radius */
+  --r-sm: 7px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-pill: 100px;
+
+  /* Tipografi */
+  --font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --lh: 1.45;
+
+  /* Layout */
+  --header-h: 72px;
+  --sidebar-w: 220px;
+  --shadow-pop: 0 12px 32px rgba(16, 45, 80, 0.14);
+}
