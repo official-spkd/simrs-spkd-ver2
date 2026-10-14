@@ -3,7 +3,7 @@
 // dan tersinkron antar tab (mis. layar VWR). Ganti isi action dengan panggilan API saat backend siap.
 import { reactive, watch } from 'vue'
 
-export type Role = 'fo' | 'dokter' | 'kasir' | 'mgmt' | 'it'
+export type Role = 'fo' | 'dokter' | 'kasir' | 'mgmt' | 'it' | 'superadmin'
 export type Penjamin = 'Umum' | 'BPJS' | 'Asuransi'
 
 const KEY = 'spkd-db-v1'

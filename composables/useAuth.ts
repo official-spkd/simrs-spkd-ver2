@@ -5,9 +5,10 @@ export const ROLE_LABEL: Record<Role, string> = {
   dokter: 'Dokter / Perawat',
   kasir: 'Kasir',
   mgmt: 'Management RS',
-  it: 'IT / Superadmin',
+  it: 'IT Support',
+  superadmin: 'Superadmin',
 }
-export const ROLE_SHORT: Record<Role, string> = { fo: 'FO / FRONT OFFICE / ADMIN', dokter: 'DOKTER / PERAWAT', kasir: 'KASIR', mgmt: 'MANAGEMENT RS', it: 'IT / SUPERADMIN' }
+export const ROLE_SHORT: Record<Role, string> = { fo: 'FO / FRONT OFFICE / ADMIN', dokter: 'DOKTER / PERAWAT', kasir: 'KASIR', mgmt: 'MANAGEMENT RS', it: 'IT SUPPORT', superadmin: 'SUPERADMIN' }
 
 export interface NavItem { label: string; to: string; icon: string }
 export const NAV: Record<Role, NavItem[]> = {
@@ -42,6 +43,16 @@ export const NAV: Record<Role, NavItem[]> = {
   ],
   it: [
     { label: 'Beranda', to: '/', icon: 'home' },
+    { label: 'Master poli & dokter', to: '/it/poli', icon: 'building' },
+    { label: 'Master jadwal', to: '/it/jadwal', icon: 'calendar' },
+    { label: 'Master tarif', to: '/it/tarif', icon: 'tag' },
+    { label: 'Status integrasi', to: '/it/integrasi', icon: 'activity' },
+    { label: 'Audit trail', to: '/it/audit', icon: 'shield' },
+    { label: 'Perangkat', to: '/it/perangkat', icon: 'monitor' },
+  ],
+  // Hanya superadmin yang boleh memakai /api/v1/users dan /api/v1/roles.
+  superadmin: [
+    { label: 'Beranda', to: '/', icon: 'home' },
     { label: 'User & role', to: '/it/user', icon: 'users' },
     { label: 'Master poli & dokter', to: '/it/poli', icon: 'building' },
     { label: 'Master jadwal', to: '/it/jadwal', icon: 'calendar' },
@@ -52,7 +63,7 @@ export const NAV: Record<Role, NavItem[]> = {
   ],
 }
 
-/** Awalan rute → role yang boleh membuka (IT boleh semuanya: mode baca untuk troubleshooting). */
+/** Awalan rute → role yang boleh membuka. Superadmin boleh semuanya; IT juga, kecuali rute khusus superadmin. */
 export const ACCESS: [string, Role[]][] = [
   ['/fo', ['fo']],
   ['/kunjungan', ['fo']],
@@ -63,20 +74,21 @@ export const ACCESS: [string, Role[]][] = [
   ['/kasir', ['kasir']],
   ['/manajemen', ['mgmt']],
   ['/monitor', ['fo', 'mgmt']],
+  ['/it/user', ['superadmin']],
   ['/it/audit', ['it', 'mgmt']],
   ['/it', ['it']],
 ]
 export const canAccess = (role: Role | undefined, path: string) => {
   if (!role) return false
-  if (role === 'it') return true
-  if (path === '/') return true
+  if (role === 'superadmin' || path === '/') return true
   const rule = ACCESS.find(([p]) => path === p || path.startsWith(p + '/'))
+  if (role === 'it') return !rule || rule[1].some((r) => r !== 'superadmin')
   return !rule || rule[1].includes(role)
 }
 
 /** Role bawaan backend (lihat Swagger: roles.Role) → role menu frontend. Role di luar daftar ini tidak bisa masuk. */
 export const BACKEND_ROLE: Record<string, Role> = {
-  superadmin: 'it',
+  superadmin: 'superadmin',
   it: 'it',
   front_office: 'fo',
   doctor: 'dokter',

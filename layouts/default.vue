@@ -11,7 +11,7 @@ const q = ref('')
 
 const unread = computed(() => db.notifications.filter((n: any) => !n.dibaca).length)
 const ssOk = computed(() => db.integrasi.satuSehat.status === 'online')
-const canSearch = computed(() => ['fo', 'dokter', 'kasir', 'it'].includes(user.value?.role))
+const canSearch = computed(() => ['fo', 'dokter', 'kasir', 'it', 'superadmin'].includes(user.value?.role))
 const roleLabel = computed(() => (user.value ? ROLE_LABEL[user.value.role as Role] : ''))
 const unitAktif = computed(() => user.value?.unit || '')
 

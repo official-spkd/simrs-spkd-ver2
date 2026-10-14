@@ -20,7 +20,8 @@ const links: Record<string, { to: string; label: string }[]> = {
   dokter: [{ to: '/klinis', label: 'Worklist poli' }],
   kasir: [{ to: '/kasir', label: 'Worklist tagihan' }, { to: '/kasir/shift', label: 'Rekap shift' }],
   mgmt: [{ to: '/manajemen', label: 'Dashboard operasional' }, { to: '/manajemen/kunjungan', label: 'Laporan kunjungan' }, { to: '/manajemen/pembatalan', label: 'Laporan pembatalan' }],
-  it: [{ to: '/it/integrasi', label: 'Status integrasi' }, { to: '/it/user', label: 'User & role' }, { to: '/it/audit', label: 'Audit trail' }, { to: '/it/perangkat', label: 'Perangkat' }],
+  it: [{ to: '/it/integrasi', label: 'Status integrasi' }, { to: '/it/audit', label: 'Audit trail' }, { to: '/it/perangkat', label: 'Perangkat' }],
+  superadmin: [{ to: '/it/user', label: 'User & role' }, { to: '/it/integrasi', label: 'Status integrasi' }, { to: '/it/audit', label: 'Audit trail' }, { to: '/it/perangkat', label: 'Perangkat' }],
 }
 const sisaTagihan = computed(() => siapBayar.value.reduce((s: number, v: any) => s + billTotals(v.id).sisa, 0))
 </script>
@@ -75,6 +76,6 @@ const sisaTagihan = computed(() => siapBayar.value.reduce((s: number, v: any) =>
         <p class="hint">Gangguan Satu Sehat atau BPJS tidak pernah menghentikan loket, poli, atau kasir — data disimpan lokal lebih dulu.</p>
       </div>
     </div>
-    <div v-if="role !== 'it'" class="row" style="margin-top: 16px"><button class="btn btn-sm" @click="useDb().resetDemo()">Reset data demo</button></div>
+    <div v-if="role !== 'it' && role !== 'superadmin'" class="row" style="margin-top: 16px"><button class="btn btn-sm" @click="useDb().resetDemo()">Reset data demo</button></div>
   </div>
 </template>
