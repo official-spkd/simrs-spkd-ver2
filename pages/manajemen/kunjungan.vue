@@ -125,7 +125,7 @@ const cetak = () => window.print()
             <tr v-for="r in rows" :key="r.v.id">
               <td data-label="No. kunjungan" class="mono">{{ r.v.noKunjungan }}</td>
               <td data-label="Tanggal">{{ fmtTgl(r.v.tanggal) }} {{ fmtJam(r.v.jamDaftar) }}</td>
-              <td data-label="Pasien">{{ r.p?.nama }} <span class="muted small">RM {{ r.p?.rm }}</span></td>
+              <td data-label="Pasien">{{ r.p?.nama }} <span class="muted small">{{ r.p?.rm }}</span></td>
               <td data-label="Tipe"><span class="badge" :class="r.baru ? 'b-teal' : 'b-mute'">{{ r.baru ? 'Baru' : 'Lama' }}</span></td>
               <td data-label="Poli">{{ r.poli?.nama }}</td>
               <td data-label="Dokter">{{ r.dr?.nama }}</td>

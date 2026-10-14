@@ -39,7 +39,7 @@ const buka = (v: any) => navigateTo('/kasir/' + v.id)
             <tr v-if="!rows.length"><td class="empty" colspan="8">Tidak ada data.</td></tr>
             <tr v-for="v in rows" :key="v.id" class="click" @click="buka(v)">
               <td data-label="No. kunjungan" class="mono">{{ v.noKunjungan }}</td>
-              <td data-label="Pasien"><b>{{ patient(v.patientId).nama }}</b><div class="muted small">RM {{ patient(v.patientId).rm }}</div></td>
+              <td data-label="Pasien"><b>{{ patient(v.patientId).nama }}</b><div class="muted small">{{ patient(v.patientId).rm }}</div></td>
               <td data-label="Poli">{{ poli(v.poliId).nama }}</td>
               <td data-label="Penjamin"><StatusBadge :value="v.penjamin" /></td>
               <td data-label="Total" class="right bold">{{ fmtRp(total(v)) }}</td>

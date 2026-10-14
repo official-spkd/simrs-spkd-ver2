@@ -7,7 +7,7 @@ const penjamin = computed(() => props.visit?.penjamin || props.patient?.penjamin
   <div v-if="patient" class="pbanner" :class="{ 'alert-al': patient.alergi }">
     <div>
       <div class="nm">{{ patient.nama }}</div>
-      <div class="muted small">No. RM {{ patient.rm }}<template v-if="visit"> · {{ visit.noKunjungan }}</template></div>
+      <div class="muted small">{{ patient.rm }}<template v-if="visit"> · {{ visit.noKunjungan }}</template></div>
     </div>
     <div class="f"><small>NIK</small><b>{{ maskNik(patient.nik) }}</b></div>
     <div class="f"><small>Umur / JK</small><b>{{ umur(patient.tglLahir) }} th / {{ patient.jk }}</b></div>

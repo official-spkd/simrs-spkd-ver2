@@ -63,7 +63,7 @@ const selesai = () => {
             <div>{{ dr?.nama }}</div>
             <div>{{ pl?.ruang }}</div>
             <hr />
-            <div>{{ namaSamar }} · RM {{ pt?.rm }}</div>
+            <div>{{ namaSamar }} · {{ pt?.rm }}</div>
             <div>{{ v.noKunjungan }}</div>
             <div>Penjamin: {{ v.penjamin }}<template v-if="sep"> · {{ sepText }}</template></div>
             <div>Perkiraan panggil: {{ estText }}</div>

@@ -15,9 +15,27 @@ const load = async () => {
   if (!isServerId(id)) return
   loading.value = true
   loadErr.value = ''
-  try { await pasien.get(id) } catch (e: any) { loadErr.value = e.message } finally { loading.value = false }
+  try {
+    const p = await pasien.get(id)
+    loadRiwayat(p.nik)
+  } catch (e: any) { loadErr.value = e.message } finally { loading.value = false }
 }
 onMounted(load)
+
+// Riwayat kunjungan dari server. API belum bisa memfilter per patient_id, jadi dicari lewat NIK;
+// tabel riwayat tetap menyaring berdasarkan patientId sehingga pasien lain yang kebetulan cocok tidak ikut tampil.
+const visitSvc = useVisits()
+const riwayatLoading = ref(false)
+const riwayatErr = ref('')
+const riwayat = ref<any[]>([])
+const loadRiwayat = async (nik: string) => {
+  riwayatLoading.value = true
+  riwayatErr.value = ''
+  try {
+    const r = await visitSvc.listView({ search: nik, limit: 100 })
+    riwayat.value = r.rows.filter((v: any) => v.patientId === route.params.id)
+  } catch (e: any) { riwayatErr.value = e.message } finally { riwayatLoading.value = false }
+}
 const role = computed(() => user.value?.role)
 const isFo = computed(() => role.value === 'fo')
 const isKasir = computed(() => role.value === 'kasir')
@@ -55,7 +73,7 @@ const ef = reactive<any>({})
 watch(() => ef.noKartu, (v) => { if (v == null) return; const c = onlyDigits(v, 13); if (c !== v) ef.noKartu = c })
 watch(() => ef.hp, (v) => { if (v == null) return; const c = phoneChars(v); if (c !== v) ef.hp = c })
 watch(() => ef.pjHp, (v) => { if (v == null) return; const c = phoneChars(v); if (c !== v) ef.pjHp = c })
-const NUMERIC: Record<string, { mode: string; max: number }> = { hp: { mode: 'tel', max: 15 }, pjHp: { mode: 'tel', max: 15 }, noKartu: { mode: 'numeric', max: 13 } }
+const NUMERIC: Record<string, { mode: 'tel' | 'numeric'; max: number }> ={ hp: { mode: 'tel', max: 15 }, pjHp: { mode: 'tel', max: 15 }, noKartu: { mode: 'numeric', max: 13 } }
 const err = ref('')
 const startEdit = () => {
   if (!pt.value) return
@@ -91,18 +109,6 @@ const saveEdit = async () => {
   } catch (e: any) { err.value = e.message } finally { saving.value = false }
 }
 
-const delOpen = ref(false)
-const deleting = ref(false)
-const hapus = async () => {
-  deleting.value = true
-  try {
-    const nama = pt.value.nama
-    await pasien.remove(pt.value.id)
-    toast.ok(`Pasien ${nama} dihapus`)
-    delOpen.value = false
-    navigateTo('/pasien')
-  } catch (e: any) { toast.err(e.message) } finally { deleting.value = false }
-}
 const show = (x: F) => {
   const v = pt.value[x.k]
   if (x.k === 'jk') return v === 'L' ? 'Laki-laki' : v === 'P' ? 'Perempuan' : '-'
@@ -111,29 +117,9 @@ const show = (x: F) => {
   return v || '-'
 }
 
-// riwayat & dokumen
-const visits = computed(() => db.visits.filter((v: any) => v.patientId === route.params.id).slice().sort((a: any, b: any) => (a.jamDaftar < b.jamDaftar ? 1 : -1)))
-const diag = (v: any) => db.soap[v.id]?.diagUtama
-const bayar = (v: any) => {
-  if (v.status === 'dibatalkan') return 'dibatalkan'
-  const b = db.bills[v.id]
-  if (v.status === 'lunas') return 'lunas'
-  if (b) return b.status
-  return 'belum ada tagihan'
-}
-const fname = (l: any) => (typeof l === 'string' ? l : l?.nama || l?.name || l?.file || 'lampiran')
-const docs = computed(() => {
-  const out: any[] = []
-  visits.value.forEach((v: any) => {
-    const s = db.soap[v.id]
-    ;(s?.lampiran || []).forEach((l: any) => out.push({ jenis: 'Lampiran SOAP', nama: fname(l), tgl: v.tanggal, ref: v.noKunjungan }))
-    ;(v.dokumen || []).forEach((l: any) => out.push({ jenis: 'Dokumen administratif', nama: fname(l), tgl: v.tanggal, ref: v.noKunjungan }))
-    const b = db.bills[v.id]
-    if (b?.noInv) out.push({ jenis: 'Invoice', nama: b.noInv, tgl: v.tanggal, ref: v.noKunjungan, status: b.status })
-    if (b?.noKw) out.push({ jenis: 'Kwitansi', nama: b.noKw, tgl: v.tanggal, ref: v.noKunjungan })
-  })
-  return isKasir.value ? out.filter((d) => d.jenis === 'Invoice' || d.jenis === 'Kwitansi') : out
-})
+// riwayat & dokumen — hanya field yang ada di respons server
+const visits = computed(() => riwayat.value.slice().sort((a: any, b: any) => (a.tanggal + a.dibuat < b.tanggal + b.dibuat ? 1 : -1)))
+const docs = computed(() => visits.value.filter((v: any) => v.dokumen).map((v: any) => ({ jenis: v.dokumen, tgl: v.tanggal, poli: v.poliNama, antrean: v.nomor })))
 
 // reservasi
 const rsvOpen = ref(false)
@@ -162,14 +148,12 @@ const printCard = () => {
 
 <template>
   <div v-if="pt">
-    <PageHead code="FO-04" :role="isKasir ? 'Kasir · tampilan ringkas' : 'Detail pasien'" :title="pt.nama" :subtitle="`No. RM ${pt.rm}`">
+    <PageHead code="FO-04" :role="isKasir ? 'Kasir · tampilan ringkas' : 'Detail pasien'" :title="pt.nama" :subtitle="pt.rm">
       <template #actions>
         <button class="btn" @click="cardOpen = true"><AppIcon name="print" /> Cetak kartu pasien</button>
         <template v-if="isFo">
           <button class="btn" @click="openRsv">+ Reservasi</button>
-          <NuxtLink :to="'/kunjungan/baru?pasien=' + pt.id" class="btn btn-primary">+ Kunjungan</NuxtLink>
-          <button v-if="isServerId(pt.id)" class="btn btn-danger" @click="delOpen = true">Hapus</button>
-        </template>
+          <NuxtLink :to="'/kunjungan/baru?pasien=' + pt.id" class="btn btn-primary">+ Kunjungan</NuxtLink>        </template>
       </template>
     </PageHead>
 
@@ -199,33 +183,35 @@ const printCard = () => {
         </div>
       </template>
 
-      <div v-else-if="tab === 'riwayat'" class="table-wrap">
+      <p v-if="tab === 'riwayat' && riwayatErr" class="alert err" role="alert" style="margin-bottom: 12px">Gagal memuat riwayat dari server: {{ riwayatErr }}</p>
+      <div v-if="tab === 'riwayat'" class="table-wrap">
         <table class="tbl rtable">
-          <thead><tr><th>Tanggal</th><th>No. kunjungan</th><th>Poli</th><th>Dokter</th><th>Diagnosis utama</th><th>Status</th><th>Status bayar</th></tr></thead>
+          <thead><tr><th>Tanggal</th><th>No. antrean</th><th>Poli</th><th>Dokter</th><th>Jenis</th><th>Penjamin</th><th>Status</th><th>Antrean poli</th></tr></thead>
           <tbody>
             <tr v-for="v in visits" :key="v.id">
               <td data-label="Tanggal">{{ fmtTgl(v.tanggal) }}</td>
-              <td data-label="No. kunjungan" class="mono">{{ v.noKunjungan }}</td>
-              <td data-label="Poli">{{ poli(v.poliId)?.nama }}</td>
-              <td data-label="Dokter">{{ doctor(v.doctorId)?.nama }}</td>
-              <td data-label="Diagnosis">{{ diag(v) ? `${diag(v).kode} · ${diag(v).nama}` : '-' }}</td>
+              <td data-label="No. antrean" class="mono">{{ v.nomor }}</td>
+              <td data-label="Poli">{{ v.poliNama }}</td>
+              <td data-label="Dokter">{{ v.dokterNama }}</td>
+              <td data-label="Jenis">{{ v.tipe }}</td>
+              <td data-label="Penjamin"><StatusBadge :value="v.penjamin" /></td>
               <td data-label="Status"><StatusBadge :value="v.status" /></td>
-              <td data-label="Status bayar"><StatusBadge :value="bayar(v)" /></td>
+              <td data-label="Antrean poli"><StatusBadge :value="v.antre" /></td>
             </tr>
-            <tr v-if="!visits.length"><td colspan="7" class="empty">Belum ada riwayat kunjungan.</td></tr>
+            <tr v-if="!visits.length"><td colspan="8" class="empty">{{ riwayatLoading ? 'Memuat riwayat kunjungan…' : 'Belum ada riwayat kunjungan.' }}</td></tr>
           </tbody>
         </table>
       </div>
 
       <div v-else-if="tab === 'dokumen'" class="table-wrap">
         <table class="tbl rtable">
-          <thead><tr><th>Jenis</th><th>Nama / nomor</th><th>Kunjungan</th><th>Tanggal</th></tr></thead>
+          <thead><tr><th>Jenis dokumen</th><th>Tanggal kunjungan</th><th>Poli</th><th>No. antrean</th></tr></thead>
           <tbody>
             <tr v-for="(d, i) in docs" :key="i">
               <td data-label="Jenis"><span class="badge b-navy">{{ d.jenis }}</span></td>
-              <td data-label="Nama" class="bold">{{ d.nama }} <StatusBadge v-if="d.status" :value="d.status" /></td>
-              <td data-label="Kunjungan" class="mono">{{ d.ref }}</td>
               <td data-label="Tanggal">{{ fmtTgl(d.tgl) }}</td>
+              <td data-label="Poli">{{ d.poli }}</td>
+              <td data-label="No. antrean" class="mono">{{ d.antrean }}</td>
             </tr>
             <tr v-if="!docs.length"><td colspan="4" class="empty">Belum ada dokumen.</td></tr>
           </tbody>
@@ -245,18 +231,13 @@ const printCard = () => {
       <template #footer><button class="btn" @click="rsvOpen = false">Tutup</button><button class="btn btn-primary" @click="saveRsv">Simpan reservasi</button></template>
     </AppModal>
 
-    <AppModal v-model="delOpen" title="Hapus pasien">
-      <p>Hapus data pasien <b>{{ pt.nama }}</b> (NIK {{ maskNik(pt.nik) }})? Data akan dihapus dari server dan NIK-nya dapat didaftarkan ulang.</p>
-      <template #footer><button class="btn" :disabled="deleting" @click="delOpen = false">Batal</button><button class="btn btn-danger" :disabled="deleting" @click="hapus">{{ deleting ? 'Menghapus…' : 'Hapus' }}</button></template>
-    </AppModal>
-
     <AppModal v-model="cardOpen" title="Kartu pasien">
       <div class="ticket" style="width: 340px; text-align: left; border-style: solid">
         <div class="bold" style="font-size: 14px">RS SPKD</div>
         <div class="muted">Kartu Berobat Pasien</div>
         <hr />
         <div class="bold" style="font-size: 16px">{{ pt.nama }}</div>
-        <div>No. RM: <b>{{ pt.rm }}</b></div>
+        <div><b>{{ pt.rm }}</b></div>
         <div>Tgl lahir: {{ fmtTgl(pt.tglLahir) }} · {{ pt.jk }}</div>
         <div>Penjamin: {{ pt.penjamin }}</div>
         <div v-if="pt.alergi" style="color: var(--err)">Alergi: {{ pt.alergi }}</div>

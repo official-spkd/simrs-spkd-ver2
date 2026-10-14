@@ -47,11 +47,14 @@ export const serverFieldErrors = (msg: string) => {
   return out
 }
 
-export const isServerId =(id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+/** No. RM dari server ditampilkan apa adanya (mis. "RM-000002"). */
+export const rmOf = (mrn?: string) => mrn || '-'
+
+export const isServerId = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
 
 const fromApi = (p: any, old: any = {}) => ({
   id: p.id,
-  rm: p.medical_record_number || '-',
+  rm: rmOf(p.medical_record_number),
   nik: p.nik,
   nama: p.full_name,
   tglLahir: (p.birth_date || '').slice(0, 10),
@@ -135,11 +138,5 @@ export function usePatients() {
     cache(await api(`/api/v1/patients/${id}`, { method: 'PUT', body: toApi(f) }))
     return keepLocal(id, f)
   }
-  const remove = async (id: string) => {
-    await api(`/api/v1/patients/${id}`, { method: 'DELETE' })
-    const i = db.patients.findIndex((x: any) => x.id === id)
-    if (i >= 0) db.patients.splice(i, 1)
-  }
-
-  return { list, get, create, update, remove }
+  return { list, get, create, update }
 }

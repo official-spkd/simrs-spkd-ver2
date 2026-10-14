@@ -78,7 +78,7 @@ const doBatal = () => { toast.attempt(() => cancelReservation(b.value.id), `Rese
           <tbody>
             <tr v-for="r in rows" :key="r.id">
               <td data-label="Kode" class="mono bold">{{ r.kode }}</td>
-              <td data-label="Pasien">{{ patient(r.patientId)?.nama }}<div class="muted small">RM {{ patient(r.patientId)?.rm }}</div></td>
+              <td data-label="Pasien">{{ patient(r.patientId)?.nama }}<div class="muted small">{{ patient(r.patientId)?.rm }}</div></td>
               <td data-label="Poli">{{ poli(r.poliId)?.nama }}</td>
               <td data-label="Dokter">{{ doctor(r.doctorId)?.nama }}</td>
               <td data-label="Tanggal">{{ fmtTgl(r.tanggal) }}<div class="muted small">{{ r.jam }}</div></td>
@@ -102,11 +102,11 @@ const doBatal = () => { toast.attempt(() => cancelReservation(b.value.id), `Rese
       <div class="form-grid">
         <div class="field full">
           <label class="req" for="rf-q">Pasien</label>
-          <div v-if="picked" class="row between alert"><span><b>{{ picked.nama }}</b> · RM {{ picked.rm }}</span><button class="btn btn-sm" @click="f.patientId = ''">Ganti</button></div>
+          <div v-if="picked" class="row between alert"><span><b>{{ picked.nama }}</b> · {{ picked.rm }}</span><button class="btn btn-sm" @click="f.patientId = ''">Ganti</button></div>
           <template v-else>
             <input id="rf-q" v-model="q" class="input" placeholder="Cari nama / No. RM / NIK (min. 2 karakter)" autocomplete="off" />
             <div v-if="hits.length" class="table-wrap">
-              <button v-for="p in hits" :key="p.id" type="button" class="btn btn-ghost btn-block" style="justify-content: flex-start; border-radius: 0" @click="pilihPasien(p)">{{ p.nama }} · RM {{ p.rm }}</button>
+              <button v-for="p in hits" :key="p.id" type="button" class="btn btn-ghost btn-block" style="justify-content: flex-start; border-radius: 0" @click="pilihPasien(p)">{{ p.nama }} · {{ p.rm }}</button>
             </div>
             <span v-else-if="q.trim().length >= 2" class="hint">Pasien tidak ditemukan.</span>
           </template>

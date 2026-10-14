@@ -1,37 +1,60 @@
 <script setup lang="ts">
 // FO-01 Worklist Pendaftaran
-const { db, poli, doctor, patient, loketAktif, loketMenunggu, callNextLoket, skipLoket, checkInReservation } = useDb()
+const { db, poli, patient, checkInReservation } = useDb()
 const toast = useToast()
 
-const LOKET = 2
 const q = ref('')
 const searchOpen = ref(false)
 const searchQ = ref('')
 const openSearch = () => { searchQ.value = q.value.trim(); searchOpen.value = true }
 
-const aktif = computed(() => loketAktif(LOKET))
-const menunggu = computed(() => loketMenunggu().slice().sort((a: any, b: any) => (a.jam > b.jam ? 1 : -1)))
-const panggil = () => {
-  const tk = toast.attempt(() => callNextLoket(LOKET))
-  if (tk && tk !== true) toast.ok(`Memanggil ${tk.nomor} ke Loket ${LOKET}`)
+// antrean loket — langsung dari server (/api/v1/counters); loket terpilih sama dengan di FO-07
+const { lokets, loketId, loket, aktif, menunggu, poll, next, skip } = useCounters()
+const loketErr = poll()
+const loketBusy = ref(false)
+const runLoket = async (fn: () => Promise<any>, okMsg: (t: any) => string) => {
+  loketBusy.value = true
+  try { toast.ok(okMsg(await fn())) } catch (e: any) { toast.err(e.message) } finally { loketBusy.value = false }
 }
-const lewati = () => toast.attempt(() => skipLoket(LOKET), 'Nomor dilewati')
+const panggil = () => runLoket(next, (t) => `Memanggil ${t.nomor} ke ${loket.value?.nama}`)
+const lewati = () => runLoket(skip, () => 'Nomor dilewati')
 
-// tabel kunjungan hari ini
+// tabel kunjungan — langsung dari server (GET /api/v1/visits); filter & halaman diproses server
+const visitSvc = useVisits()
+const fTanggal = ref(todayStr())
 const fPoli = ref('')
 const fStatus = ref('')
 const page = ref(1)
-const PER = 8
-const rows = computed(() =>
-  db.visits
-    .filter((v: any) => v.tanggal === todayStr() && (!fPoli.value || v.poliId === fPoli.value) && (!fStatus.value || v.status === fStatus.value))
-    .slice()
-    .sort((a: any, b: any) => (a.jamDaftar > b.jamDaftar ? -1 : 1)),
-)
-const pages = computed(() => Math.max(1, Math.ceil(rows.value.length / PER)))
-const pageRows = computed(() => rows.value.slice((page.value - 1) * PER, page.value * PER))
-watch([fPoli, fStatus], () => (page.value = 1))
-watch(pages, (n) => { if (page.value > n) page.value = n })
+const PER = 10
+const rows = ref<any[]>([])
+const total = ref(0)
+const pages = ref(1)
+const syncing = ref(false)
+const syncErr = ref('')
+let seq = 0
+const sync = async () => {
+  const my = ++seq
+  syncing.value = true
+  syncErr.value = ''
+  try {
+    const r = await visitSvc.listView({ date: fTanggal.value, poli: fPoli.value, status: fStatus.value, page: page.value, limit: PER })
+    if (my !== seq) return
+    rows.value = r.rows
+    total.value = r.pagination?.total_items ?? r.rows.length
+    pages.value = Math.max(1, r.pagination?.total_pages ?? 1)
+  } catch (e: any) {
+    if (my !== seq) return
+    rows.value = []
+    total.value = 0
+    syncErr.value = e.message
+  } finally {
+    if (my === seq) syncing.value = false
+  }
+}
+onMounted(sync)
+watch([fTanggal, fPoli, fStatus], () => (page.value === 1 ? sync() : (page.value = 1)))
+watch(page, sync)
+const judulTanggal = computed(() => (fTanggal.value === todayStr() ? 'Kunjungan hari ini' : 'Kunjungan ' + fmtTgl(fTanggal.value)))
 
 const reservasi = computed(() => db.reservations.filter((r: any) => r.status === 'booked' && r.tanggal === todayStr()))
 const checkIn = (r: any) => {
@@ -42,11 +65,7 @@ const checkIn = (r: any) => {
 const detail = ref<any>(null)
 const detailOpen = ref(false)
 const openDetail = (v: any) => { detail.value = v; detailOpen.value = true }
-const cancelOpen = ref(false)
-const askCancel = () => { detailOpen.value = false; cancelOpen.value = true }
-const canCancel = (v: any) => v && v.status === 'terdaftar' && ['menunggu', 'dipanggil'].includes(v.antreanPoli.status)
-const detailPt = computed(() => (detail.value ? patient(detail.value.patientId) : null))
-const lastCancelled = () => { detail.value = null }
+const detailPt = computed(() => (detail.value?.patientId ? patient(detail.value.patientId) : null))
 </script>
 
 <template>
@@ -65,19 +84,25 @@ const lastCancelled = () => { detail.value = null }
     <div class="split">
       <div class="stack">
         <div class="card">
-          <h2>Antrean loket</h2>
-          <div class="muted small">Loket {{ LOKET }} · sedang dipanggil</div>
+          <div class="row between">
+            <h2 style="margin: 0">Antrean loket</h2>
+            <select v-if="lokets.length > 1" v-model="loketId" class="select" style="width: auto; min-height: 32px" aria-label="Pilih loket">
+              <option v-for="l in lokets" :key="l.id" :value="l.id" :disabled="!l.aktif">{{ l.nama }}{{ l.aktif ? '' : ' (nonaktif)' }}</option>
+            </select>
+          </div>
+          <p v-if="loketErr" class="alert err small" role="alert" style="margin-top: 8px">{{ loketErr }}</p>
+          <div class="muted small" style="margin-top: 6px">{{ loket?.nama || 'Loket' }} · {{ aktif?.raw === 'SERVING' ? 'sedang dilayani' : 'sedang dipanggil' }}</div>
           <div class="bignum">{{ aktif ? aktif.nomor : '-' }}</div>
-          <div v-if="aktif" class="row" style="margin-bottom: 8px"><StatusBadge :value="aktif.kanal" /><span class="muted small">diambil {{ fmtJam(aktif.jam) }}</span></div>
+          <div v-if="aktif" class="row" style="margin-bottom: 8px"><StatusBadge :value="aktif.status" /><span class="muted small">diambil {{ fmtJam(aktif.jam) }}<template v-if="aktif.nama"> · {{ aktif.nama }}</template></span></div>
           <div class="muted" style="margin-bottom: 14px">Sisa antrean: <b>{{ menunggu.length }}</b> menunggu</div>
           <div class="row">
-            <button class="btn btn-primary" style="flex: 1" @click="panggil">Panggil berikutnya</button>
-            <button class="btn" :disabled="!aktif" @click="lewati">Lewati</button>
+            <button class="btn btn-primary" style="flex: 1" :disabled="loketBusy || !loket?.aktif || !!aktif" :title="aktif ? 'Selesaikan atau lewati nomor saat ini dulu' : ''" @click="panggil">Panggil berikutnya</button>
+            <button class="btn" :disabled="loketBusy || aktif?.raw !== 'CALLING'" @click="lewati">Lewati</button>
           </div>
           <NuxtLink to="/fo/antrean" class="small" style="display: inline-block; margin-top: 12px">Buka layar pemanggilan penuh</NuxtLink>
           <ul v-if="menunggu.length" style="list-style: none; padding: 0; margin: 12px 0 0">
             <li v-for="t in menunggu.slice(0, 4)" :key="t.id" class="row between" style="padding: 6px 0; border-top: 1px solid var(--line)">
-              <b class="mono">{{ t.nomor }}</b><span><StatusBadge :value="t.kanal" /> <span class="muted small">{{ fmtJam(t.jam) }}</span></span>
+              <b class="mono">{{ t.nomor }}</b><span><span class="small">{{ t.poli }}</span> <span class="muted small">{{ fmtJam(t.jam) }}</span></span>
             </li>
           </ul>
         </div>
@@ -95,22 +120,27 @@ const lastCancelled = () => { detail.value = null }
 
       <div class="card">
         <div class="row between" style="margin-bottom: 12px">
-          <h2 style="margin: 0">Kunjungan hari ini</h2>
-          <span class="muted small">{{ fmtTglPanjang() }}</span>
+          <h2 style="margin: 0">{{ judulTanggal }}</h2>
+          <button class="btn btn-sm" :disabled="syncing" @click="sync">{{ syncing ? 'Memuat…' : 'Muat ulang' }}</button>
         </div>
+        <p v-if="syncErr" class="alert err" role="alert" style="margin-bottom: 12px">Gagal memuat kunjungan dari server: {{ syncErr }}</p>
         <div class="filters">
+          <div class="field">
+            <label for="f-tgl" class="small">Tanggal</label>
+            <input id="f-tgl" v-model="fTanggal" type="date" class="input" />
+          </div>
           <div class="field">
             <label for="f-poli" class="small">Poli</label>
             <select id="f-poli" v-model="fPoli" class="select">
               <option value="">Semua poli</option>
-              <option v-for="p in db.polis" :key="p.id" :value="p.id">{{ p.nama }}</option>
+              <option v-for="p in db.polis" :key="p.id" :value="p.nama">{{ p.nama }}</option>
             </select>
           </div>
           <div class="field">
             <label for="f-status" class="small">Status kunjungan</label>
             <select id="f-status" v-model="fStatus" class="select">
               <option value="">Semua status</option>
-              <option v-for="s in ['terdaftar', 'dilayani', 'selesai', 'lunas', 'dibatalkan']" :key="s" :value="s">{{ s }}</option>
+              <option v-for="st in ['terdaftar', 'dilayani', 'selesai', 'lunas', 'dibatalkan']" :key="st" :value="st">{{ st }}</option>
             </select>
           </div>
         </div>
@@ -120,58 +150,61 @@ const lastCancelled = () => { detail.value = null }
               <tr><th>Antrean</th><th>RM</th><th>Nama</th><th>Poli / Dokter</th><th>Penjamin</th><th>Status</th><th>Antrean poli</th><th>Satu Sehat</th><th /></tr>
             </thead>
             <tbody>
-              <tr v-for="v in pageRows" :key="v.id" class="click" @click="openDetail(v)">
-                <td data-label="Antrean" class="mono bold">{{ v.antreanPoli.nomor }}</td>
-                <td data-label="RM" class="mono">{{ patient(v.patientId)?.rm }}</td>
-                <td data-label="Nama" class="bold">{{ patient(v.patientId)?.nama }}</td>
-                <td data-label="Poli">{{ poli(v.poliId)?.nama }}<div class="muted small">{{ doctor(v.doctorId)?.nama }}</div></td>
+              <tr v-for="v in rows" :key="v.id" class="click" @click="openDetail(v)">
+                <td data-label="Antrean" class="mono bold">{{ v.nomor }}</td>
+                <td data-label="RM" class="mono">{{ v.rm }}</td>
+                <td data-label="Nama" class="bold">{{ v.nama }}</td>
+                <td data-label="Poli">{{ v.poliNama }}<span v-if="!v.diMaster" class="badge b-warn" style="margin-left: 6px">di luar master</span><div class="muted small">{{ v.dokterNama }}</div></td>
                 <td data-label="Penjamin"><StatusBadge :value="v.penjamin" /></td>
                 <td data-label="Status"><StatusBadge :value="v.status" /></td>
-                <td data-label="Antrean poli"><StatusBadge :value="v.antreanPoli.status" /></td>
+                <td data-label="Antrean poli"><StatusBadge :value="v.antre" /></td>
                 <td data-label="Satu Sehat"><StatusBadge :value="v.satuSehat" /></td>
                 <td data-label="">
                   <div class="row" style="flex-wrap: nowrap; justify-content: flex-end" @click.stop>
                     <button class="btn btn-sm" @click="openDetail(v)">Detail</button>
-                    <button v-if="canCancel(v)" class="btn btn-sm btn-danger" @click="detail = v; cancelOpen = true">Batalkan</button>
                   </div>
                 </td>
               </tr>
-              <tr v-if="!pageRows.length"><td colspan="9" class="empty">Belum ada kunjungan yang cocok.</td></tr>
+              <tr v-if="syncing && !rows.length"><td colspan="9" class="empty">Memuat kunjungan dari server…</td></tr>
+              <tr v-else-if="!rows.length && !syncErr"><td colspan="9" class="empty">Belum ada kunjungan yang cocok.</td></tr>
             </tbody>
           </table>
         </div>
         <div class="pager">
-          <span>{{ rows.length }} kunjungan · halaman {{ page }} / {{ pages }}</span>
-          <span><button :disabled="page <= 1" @click="page--">Sebelumnya</button><button :disabled="page >= pages" @click="page++">Berikutnya</button></span>
+          <span>{{ total }} kunjungan · halaman {{ page }} / {{ pages }}</span>
+          <span><button :disabled="page <= 1 || syncing" @click="page--">Sebelumnya</button><button :disabled="page >= pages || syncing" @click="page++">Berikutnya</button></span>
         </div>
-        <p class="hint">Menunggu poli merupakan status antrean, bukan status kunjungan.</p>
+        <p class="hint">Data langsung dari server. Pembatalan kunjungan belum tersedia karena backend belum punya endpoint ubah status.</p>
       </div>
     </div>
 
     <PatientSearchModal v-model="searchOpen" :initial-query="searchQ" />
 
     <AppModal v-model="detailOpen" title="Detail kunjungan">
-      <template v-if="detail && detailPt">
-        <PatientBanner :patient="detailPt" :visit="detail" />
+      <template v-if="detail">
+        <PatientBanner v-if="detailPt" :patient="detailPt" />
         <dl class="kv">
-          <dt>Antrean poli</dt><dd>{{ detail.antreanPoli.nomor }} <StatusBadge :value="detail.antreanPoli.status" /></dd>
+          <dt>Pasien</dt><dd>{{ detail.nama }} · {{ detail.rm }}</dd>
+          <dt>Tanggal</dt><dd>{{ fmtTgl(detail.tanggal) }}</dd>
+          <dt>Antrean poli</dt><dd>{{ detail.nomor }} <StatusBadge :value="detail.antre" /></dd>
           <dt>Status kunjungan</dt><dd><StatusBadge :value="detail.status" /></dd>
-          <dt>Poli / dokter</dt><dd>{{ poli(detail.poliId)?.nama }} · {{ doctor(detail.doctorId)?.nama }}</dd>
-          <dt>Jenis / kanal</dt><dd>{{ detail.tipe }} · <StatusBadge :value="detail.kanal" /></dd>
+          <dt>Poli / dokter</dt><dd>{{ detail.poliNama }} · {{ detail.dokterNama }}</dd>
+          <dt>Jenis</dt><dd>{{ detail.tipe }}</dd>
+          <dt>Penjamin</dt><dd><StatusBadge :value="detail.penjamin" /></dd>
+          <template v-if="detail.bpjs"><dt>BPJS</dt><dd class="mono">{{ detail.bpjs }}<template v-if="detail.noRujukan"> · rujukan {{ detail.noRujukan }}</template><template v-if="detail.noKontrol"> · kontrol {{ detail.noKontrol }}</template></dd></template>
+          <template v-if="detail.asuransi"><dt>Asuransi</dt><dd>{{ detail.asuransi }} · {{ detail.noPolis }} · plafon {{ fmtRp(detail.plafon) }}</dd></template>
           <dt>Keluhan</dt><dd>{{ detail.keluhan || '-' }}</dd>
-          <dt>Jam daftar</dt><dd>{{ fmtJam(detail.jamDaftar) }}</dd>
-          <dt>SEP</dt><dd><template v-if="detail.sep"><StatusBadge :value="detail.sep.status" /> {{ detail.sep.noSep }}</template><template v-else>-</template></dd>
+          <dt>Penanggung jawab</dt><dd>{{ detail.pj || '-' }}</dd>
+          <dt>Alergi</dt><dd>{{ detail.alergi || '-' }}</dd>
+          <dt>Dokumen</dt><dd>{{ detail.dokumen || '-' }}</dd>
+          <dt>Didaftarkan</dt><dd>{{ fmtWaktu(detail.dibuat) }}</dd>
           <dt>Satu Sehat</dt><dd><StatusBadge :value="detail.satuSehat" /></dd>
-          <template v-if="detail.pembatalan"><dt>Pembatalan</dt><dd>{{ detail.pembatalan.alasan }} · {{ detail.pembatalan.ket }} ({{ detail.pembatalan.petugas }})</dd></template>
         </dl>
       </template>
       <template #footer>
         <button class="btn" @click="detailOpen = false">Tutup</button>
-        <button v-if="canCancel(detail)" class="btn btn-danger" @click="askCancel">Batalkan kunjungan</button>
-        <NuxtLink v-if="detail" :to="'/pasien/' + detail.patientId" class="btn btn-primary" @click="detailOpen = false">Buka data pasien</NuxtLink>
+        <NuxtLink v-if="detail?.patientId" :to="'/pasien/' + detail.patientId" class="btn btn-primary" @click="detailOpen = false">Buka data pasien</NuxtLink>
       </template>
     </AppModal>
-
-    <CancelVisitModal v-model="cancelOpen" :visit="detail" @done="lastCancelled" />
   </div>
 </template>

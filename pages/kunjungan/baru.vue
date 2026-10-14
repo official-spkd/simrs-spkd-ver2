@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // FO-05 Form Kunjungan (wizard 4 langkah) + FO-06 Panel Penjamin & SEP
 const route = useRoute()
-const { db, patient, poli, doctor, visit, polisAktifHariIni, doctorsOfPoli, cekKepesertaan, registerVisit, retrySep } = useDb()
+const { db, patient, poli, doctor, visit, polisAktifHariIni, doctorsOfPoli, cekKepesertaan, retrySep } = useDb()
+const visits = useVisits()
 const toast = useToast()
 
 const pasienId = computed(() => String(route.query.pasien || ''))
@@ -51,7 +52,7 @@ const addFiles = (e: Event) => {
   if (files.length) toast.ok(`${files.length} dokumen dicatat`)
   el.value = ''
 }
-const delDok = (i: number) => f.dokumen.splice(i, 1)
+const delDok = (i: number | string) => f.dokumen.splice(Number(i), 1)
 const dokumenText = computed(() => (f.dokumen.length ? f.dokumen.map((d: any) => d.nama).join(', ') : '-'))
 
 // langkah 2
@@ -59,11 +60,14 @@ const polis = computed(() => polisAktifHariIni())
 const dokters = computed(() => (f.poliId ? doctorsOfPoli(f.poliId) : []))
 const pilihPoli = (id: string) => { f.poliId = id; f.doctorId = '' }
 const dokterTerpilih = computed(() => dokters.value.find((d: any) => d.id === f.doctorId))
+// Perkiraan dari kunjungan server yang sudah termuat; nomor final diterbitkan server (mulai 001 per poli per tanggal).
 const preview = computed(() => {
   if (!f.poliId) return '-'
-  const n = (db.counters[`${todayStr()}|${f.poliId}`] || 0) + 1
+  const n = db.visits.filter((v: any) => v.server && v.poliId === f.poliId && v.tanggal === todayStr()).length + 1
   return `${poli(f.poliId).kode}-${pad(n)}`
 })
+onMounted(() => { visits.syncDate().catch(() => {}) })
+watch(() => f.noKartu, (v) => { const c = onlyDigits(v, 13); if (c !== v) f.noKartu = c })
 const sudahAda = computed(() => (pt.value && f.poliId ? db.visits.find((v: any) => v.patientId === pt.value.id && v.poliId === f.poliId && v.tanggal === todayStr() && v.status !== 'dibatalkan') : null))
 
 const validasi = (s: number): string => {
@@ -82,7 +86,7 @@ const validasi = (s: number): string => {
   }
   if (s === 3) {
     if (!f.keluhan.trim()) return 'Keluhan singkat wajib diisi'
-    if (!f.pj.trim()) return 'Nama penanggung jawab wajib diisi'
+    if (f.pj.trim().length < 3) return 'Nama penanggung jawab wajib diisi (minimal 3 karakter)'
     if (!f.persetujuan) return 'Persetujuan umum (general consent) wajib dicentang'
   }
   return ''
@@ -96,16 +100,16 @@ const kembali = () => { err.value = ''; if (step.value > 1) step.value-- }
 
 const ticketOpen = ref(false)
 const sepOpen = ref(false)
-const daftar = (cetak: boolean) => {
+const daftar = async (cetak: boolean) => {
   for (let s = 1; s <= 3; s++) {
     const m = validasi(s)
     if (m) { err.value = m; step.value = s; toast.err(m); return }
   }
   saving.value = true
   try {
-    const v = registerVisit({
+    const v = await visits.create({
       patientId: pt.value.id, poliId: f.poliId, doctorId: f.doctorId, penjamin: f.penjamin, tipe: f.tipe, keluhan: f.keluhan.trim(), pj: f.pj.trim(),
-      kanal: 'loket', persetujuan: f.persetujuan, noRujukan: f.noRujukan.trim(), noKontrol: f.noKontrol.trim(), dokumen: f.dokumen.slice(),
+      noKartu: f.noKartu.trim(), noRujukan: f.noRujukan.trim(), noKontrol: f.noKontrol.trim(), dokumen: f.dokumen.slice(),
       asuransiNama: f.asuransiNama.trim(), noPolis: f.noPolis.trim(), plafon: Number(f.plafon) || 0,
     })
     doneId.value = v.id
@@ -253,7 +257,7 @@ const sepBisaKirim = computed(() => doneVisit.value?.sep && doneVisit.value.sep.
         <!-- 4. ringkasan -->
         <div v-show="step === 4" class="grid g2">
           <dl class="kv">
-            <dt>Pasien</dt><dd>{{ pt.nama }} · RM {{ pt.rm }}</dd>
+            <dt>Pasien</dt><dd>{{ pt.nama }} · {{ pt.rm }}</dd>
             <dt>Penjamin</dt><dd><StatusBadge :value="f.penjamin" /></dd>
             <template v-if="f.penjamin === 'BPJS'"><dt>No. kartu</dt><dd class="mono">{{ f.noKartu }}</dd><dt>Rujukan / kontrol</dt><dd class="mono">{{ f.noRujukan || '-' }} / {{ f.noKontrol || '-' }}</dd><dt>Status SEP</dt><dd><StatusBadge value="menunggu" /></dd></template>
             <template v-if="f.penjamin === 'Asuransi'"><dt>Asuransi</dt><dd>{{ f.asuransiNama }} · {{ f.noPolis }} · plafon {{ fmtRp(f.plafon) }}</dd></template>
@@ -267,7 +271,7 @@ const sepBisaKirim = computed(() => doneVisit.value?.sep && doneVisit.value.sep.
           <div class="card" style="text-align: center; background: var(--teal-l)">
             <div class="muted">Pratinjau nomor antrean</div>
             <div class="bignum">{{ preview }}</div>
-            <div class="hint">Nomor final diterbitkan saat Daftarkan; kuota dikunci atomik.</div>
+            <div class="hint">Perkiraan. Nomor final diterbitkan server saat Daftarkan.</div>
           </div>
           <div v-if="f.penjamin === 'BPJS' && !f.noRujukan && !f.noKontrol" class="alert warn full" style="grid-column: 1 / -1">Belum ada No. rujukan / surat kontrol. SEP tetap dibuat menunggu; lengkapi bila diperlukan.</div>
         </div>
@@ -290,7 +294,7 @@ const sepBisaKirim = computed(() => doneVisit.value?.sep && doneVisit.value.sep.
         <div class="bold">{{ poli(doneVisit.poliId)?.nama }} · {{ poli(doneVisit.poliId)?.ruang }}</div>
         <div>{{ doctor(doneVisit.doctorId)?.nama }}</div>
         <hr />
-        <div>{{ maskNama(pt.nama) }} · RM {{ pt.rm }}</div>
+        <div>{{ maskNama(pt.nama) }} · {{ pt.rm }}</div>
         <div>{{ doneVisit.penjamin }} · {{ fmtTglPanjang() }} {{ fmtJam(doneVisit.jamDaftar) }}</div>
         <div class="muted">{{ doneVisit.noKunjungan }}</div>
         <div style="margin-top: 8px">Mohon menunggu panggilan.</div>

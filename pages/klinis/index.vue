@@ -82,7 +82,7 @@ const mulai = (v: any) => {
               <td data-label="Pasien">
                 <NuxtLink :to="'/klinis/' + v.id" class="bold">{{ patient(v.patientId).nama }}</NuxtLink>
                 <span v-if="patient(v.patientId).alergi" class="alergi-tag" style="margin-left:6px" :title="'Alergi: ' + patient(v.patientId).alergi">Alergi</span>
-                <div class="muted small">RM {{ patient(v.patientId).rm }} · {{ poli(v.poliId).nama }}</div>
+                <div class="muted small">{{ patient(v.patientId).rm }} · {{ poli(v.poliId).nama }}</div>
               </td>
               <td data-label="Umur / JK">{{ umur(patient(v.patientId).tglLahir) }} th / {{ patient(v.patientId).jk }}</td>
               <td data-label="Penjamin"><StatusBadge :value="v.penjamin" /></td>
