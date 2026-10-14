@@ -1,5 +1,6 @@
 <script setup lang="ts">
 // GL-02 App Shell: sidebar dinamis per role, omnibox (Ctrl+K), notifikasi, badge Satu Sehat, profil.
+import logo from '~/assets/images/logo-sidebar.png'
 const { user, logout, nav } = useAuth()
 const { db, flushOutbox } = useDb()
 const route = useRoute()
@@ -33,10 +34,7 @@ const readAll = () => { db.notifications.forEach((n: any) => (n.dibaca = true)) 
 <template>
   <div v-if="user" class="shell" :class="{ open }">
     <aside class="sidebar" aria-label="Menu utama">
-      <div class="brand">
-        <div class="brand-mark"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#0b8f95" stroke-width="2.4" stroke-linecap="round"><path d="M3 12h4l2-5 4 10 2-5h6" /></svg></div>
-        <div><b>SIM<span>RS</span></b><b style="font-size: 14px">SPKD</b></div>
-      </div>
+      <div class="brand"><img :src="logo" alt="SIMRS SPKD" width="125" height="48" /></div>
       <div class="role-tag">{{ ROLE_SHORT[user.role as Role] }}</div>
       <nav class="nav">
         <NuxtLink v-for="n in nav" :key="n.to" :to="n.to" :exact="n.to === '/'"><AppIcon :name="n.icon" /> {{ n.label }}</NuxtLink>

@@ -74,36 +74,88 @@ export const canAccess = (role: Role | undefined, path: string) => {
   return !rule || rule[1].includes(role)
 }
 
+/** Role bawaan backend (lihat Swagger: roles.Role) → role menu frontend. Role di luar daftar ini tidak bisa masuk. */
+export const BACKEND_ROLE: Record<string, Role> = {
+  superadmin: 'it',
+  it: 'it',
+  front_office: 'fo',
+  doctor: 'dokter',
+  cashier: 'kasir',
+  management: 'mgmt',
+}
+
+const SESSION_KEY = 'spkd-session'
+
+const toSession = (u: any, expiresAt: number) => ({
+  id: u.id,
+  nama: u.name,
+  username: u.nip || u.email,
+  nip: u.nip,
+  email: u.email,
+  backendRole: u.role,
+  role: BACKEND_ROLE[u.role],
+  expiresAt,
+})
+
+const clearStorage = () => {
+  try { localStorage.removeItem(SESSION_KEY); localStorage.removeItem(TOKEN_KEY) } catch {}
+}
+
 let _user: Ref<any> | null = null
 export function useAuth() {
   if (!_user) {
     _user = ref(null)
     if (import.meta.client) {
-      try { _user.value = JSON.parse(localStorage.getItem('spkd-session') || 'null') } catch {}
+      try {
+        const s = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null')
+        if (s && localStorage.getItem(TOKEN_KEY) && s.expiresAt > Date.now()) _user.value = s
+        else clearStorage()
+      } catch {}
+      // Validasi ulang token ke server; akun yang dinonaktifkan/role berubah ikut terbarui.
+      if (_user.value) {
+        api('/api/v1/auth/me')
+          .then((u: any) => {
+            if (!u?.is_active || !BACKEND_ROLE[u.role]) return logout()
+            _user!.value = toSession(u, _user!.value.expiresAt)
+            localStorage.setItem(SESSION_KEY, JSON.stringify(_user!.value))
+          })
+          .catch((e) => { if (e instanceof ApiError && (e.status === 401 || e.status === 403)) logout() })
+      }
     }
   }
   const user = _user
-  const login = (username: string, password: string) => {
+
+  const audit = (nama: string, role: string, aksi: string, objek: string, alasan = '') => {
     const { db } = useDb()
-    const u = db.users.find((x: any) => x.username === username.trim().toLowerCase())
-    if (!u || u.password !== password) {
-      db.audit.unshift({ id: Date.now() + 'f', at: new Date().toISOString(), user: username || '-', role: '-', aksi: 'login gagal', objek: username, alasan: 'kredensial salah', ip: '10.10.1.20' })
-      throw new Error('Username atau password salah')
+    db.audit.unshift({ id: Date.now() + aksi, at: new Date().toISOString(), user: nama, role, aksi, objek, alasan, ip: '-' })
+  }
+
+  const login = async (identifier: string, password: string) => {
+    const id = identifier.trim()
+    let res: any
+    try {
+      res = await api('/api/v1/auth/login', { method: 'POST', body: { identifier: id, password } })
+    } catch (e: any) {
+      if (e instanceof ApiError && e.status) audit(id || '-', '-', e.status === 403 ? 'login ditolak' : 'login gagal', id, e.message)
+      throw e
     }
-    if (!u.aktif) {
-      db.audit.unshift({ id: Date.now() + 'x', at: new Date().toISOString(), user: u.nama, role: u.role, aksi: 'login ditolak', objek: u.username, alasan: 'role tidak aktif', ip: '10.10.1.20' })
-      throw new Error('Akun tidak aktif. Hubungi IT.')
+    const role = BACKEND_ROLE[res.user.role]
+    if (!role) {
+      audit(res.user.name, res.user.role, 'login ditolak', id, 'role belum didukung frontend')
+      throw new Error(`Role "${res.user.role}" belum memiliki akses ke aplikasi ini. Hubungi IT.`)
     }
-    u.loginTerakhir = new Date().toISOString()
-    _user!.value = { id: u.id, nama: u.nama, username: u.username, role: u.role, unit: u.unit, poliId: u.poliId, doctorId: u.doctorId }
-    localStorage.setItem('spkd-session', JSON.stringify(_user!.value))
-    db.audit.unshift({ id: Date.now() + 'l', at: new Date().toISOString(), user: u.nama, role: u.role, aksi: 'login', objek: 'GL-01', alasan: '', ip: '10.10.1.20' })
+    _user!.value = toSession(res.user, Date.now() + res.expires_in * 1000)
+    localStorage.setItem(TOKEN_KEY, res.access_token)
+    localStorage.setItem(SESSION_KEY, JSON.stringify(_user!.value))
+    audit(res.user.name, role, 'login', 'GL-01')
     return _user!.value
   }
-  const logout = () => {
+
+  function logout() {
     _user!.value = null
-    localStorage.removeItem('spkd-session')
+    clearStorage()
     navigateTo('/login')
   }
+
   return { user, login, logout, nav: computed(() => (user.value ? NAV[user.value.role as Role] : [])) }
 }

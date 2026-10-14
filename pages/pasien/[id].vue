@@ -4,8 +4,20 @@ const route = useRoute()
 const { db, poli, doctor, updatePatient, doctorsOfPoli, sessionFor, createReservation } = useDb()
 const { user } = useAuth()
 const toast = useToast()
+const pasien = usePatients()
 
 const pt = computed(() => db.patients.find((p: any) => p.id === route.params.id))
+const loading = ref(false)
+const loadErr = ref('')
+// ID UUID = pasien dari server; ID lain (mis. "p1") = data contoh lokal yang belum ada di server.
+const load = async () => {
+  const id = String(route.params.id)
+  if (!isServerId(id)) return
+  loading.value = true
+  loadErr.value = ''
+  try { await pasien.get(id) } catch (e: any) { loadErr.value = e.message } finally { loading.value = false }
+}
+onMounted(load)
 const role = computed(() => user.value?.role)
 const isFo = computed(() => role.value === 'fo')
 const isKasir = computed(() => role.value === 'kasir')
@@ -39,6 +51,11 @@ const fieldsOf = computed(() => FIELDS[tab.value] || [])
 
 const editing = ref(false)
 const ef = reactive<any>({})
+// Kolom angka: huruf/simbol langsung dibuang saat diketik atau ditempel.
+watch(() => ef.noKartu, (v) => { if (v == null) return; const c = onlyDigits(v, 13); if (c !== v) ef.noKartu = c })
+watch(() => ef.hp, (v) => { if (v == null) return; const c = phoneChars(v); if (c !== v) ef.hp = c })
+watch(() => ef.pjHp, (v) => { if (v == null) return; const c = phoneChars(v); if (c !== v) ef.pjHp = c })
+const NUMERIC: Record<string, { mode: string; max: number }> = { hp: { mode: 'tel', max: 15 }, pjHp: { mode: 'tel', max: 15 }, noKartu: { mode: 'numeric', max: 13 } }
 const err = ref('')
 const startEdit = () => {
   if (!pt.value) return
@@ -46,19 +63,45 @@ const startEdit = () => {
   err.value = ''
   editing.value = true
 }
-const saveEdit = () => {
+const saving = ref(false)
+const saveEdit = async () => {
   err.value = ''
-  if (!ef.nama.trim()) { err.value = 'Nama wajib diisi'; return }
-  if (!ef.hp.trim() || !ef.alamatKtp.trim()) { err.value = 'No. HP dan alamat KTP wajib diisi'; return }
-  if (!ef.pjNama.trim() || !ef.pjHubungan.trim() || !ef.pjHp.trim()) { err.value = 'Data penanggung jawab wajib lengkap'; return }
+  if (ef.nama.trim().length < 3) { err.value = 'Nama wajib diisi (minimal 3 karakter)'; return }
+  if (!ef.tglLahir || !ef.jk || !ef.tempatLahir.trim()) { err.value = 'Tanggal lahir, jenis kelamin, dan tempat lahir wajib diisi'; return }
+  if (!ef.hp.trim() || ef.alamatKtp.trim().length < 5) { err.value = 'No. HP dan alamat KTP (minimal 5 karakter) wajib diisi'; return }
+  if (ef.alamatDomisili.trim() && ef.alamatDomisili.trim().length < 5) { err.value = 'Alamat domisili minimal 5 karakter'; return }
+  if (ef.pjNama.trim().length < 3 || !ef.pjHubungan.trim() || !ef.pjHp.trim()) { err.value = 'Data penanggung jawab wajib lengkap'; return }
+  if (!validHp(ef.hp) || !validHp(ef.pjHp)) { err.value = 'No. HP pasien dan penanggung jawab harus nomor seluler Indonesia (mis. 081234567890)'; return }
   if (ef.penjamin === 'BPJS' && !/^\d{13}$/.test(ef.noKartu || '')) { err.value = 'No. kartu BPJS harus 13 digit'; return }
   if (ef.penjamin === 'Asuransi' && (!ef.asuransi.trim() || !ef.noPolis.trim())) { err.value = 'Nama asuransi dan No. polis wajib diisi'; return }
   const d: any = {}
   Object.keys(FIELDS).forEach((t) => FIELDS[t].forEach((x) => { if (!x.ro) d[x.k] = typeof ef[x.k] === 'string' ? ef[x.k].trim() : ef[x.k] }))
   if (d.penjamin !== 'BPJS') d.noKartu = ''
   if (d.penjamin !== 'Asuransi') { d.asuransi = ''; d.noPolis = '' }
-  toast.attempt(() => updatePatient(pt.value.id, d), 'Data pasien diperbarui (tercatat di audit)')
-  editing.value = false
+  if (!isServerId(pt.value.id)) {
+    toast.attempt(() => updatePatient(pt.value.id, d), 'Data pasien diperbarui (data contoh lokal)')
+    editing.value = false
+    return
+  }
+  saving.value = true
+  try {
+    await pasien.update(pt.value.id, { ...d, nik: pt.value.nik })
+    toast.ok('Data pasien diperbarui')
+    editing.value = false
+  } catch (e: any) { err.value = e.message } finally { saving.value = false }
+}
+
+const delOpen = ref(false)
+const deleting = ref(false)
+const hapus = async () => {
+  deleting.value = true
+  try {
+    const nama = pt.value.nama
+    await pasien.remove(pt.value.id)
+    toast.ok(`Pasien ${nama} dihapus`)
+    delOpen.value = false
+    navigateTo('/pasien')
+  } catch (e: any) { toast.err(e.message) } finally { deleting.value = false }
 }
 const show = (x: F) => {
   const v = pt.value[x.k]
@@ -125,6 +168,7 @@ const printCard = () => {
         <template v-if="isFo">
           <button class="btn" @click="openRsv">+ Reservasi</button>
           <NuxtLink :to="'/kunjungan/baru?pasien=' + pt.id" class="btn btn-primary">+ Kunjungan</NuxtLink>
+          <button v-if="isServerId(pt.id)" class="btn btn-danger" @click="delOpen = true">Hapus</button>
         </template>
       </template>
     </PageHead>
@@ -138,7 +182,7 @@ const printCard = () => {
       <template v-if="['demografi', 'kontak', 'penjamin', 'pj'].includes(tab)">
         <div v-if="isFo" class="row" style="justify-content: flex-end; margin-bottom: 12px">
           <template v-if="!editing"><button class="btn btn-sm" @click="startEdit">Edit data</button></template>
-          <template v-else><button class="btn btn-sm" @click="editing = false">Batal</button><button class="btn btn-sm btn-primary" @click="saveEdit">Simpan perubahan</button></template>
+          <template v-else><button class="btn btn-sm" :disabled="saving" @click="editing = false">Batal</button><button class="btn btn-sm btn-primary" :disabled="saving" @click="saveEdit">{{ saving ? 'Menyimpan…' : 'Simpan perubahan' }}</button></template>
         </div>
         <p v-if="err" class="err-text" role="alert" style="margin-bottom: 10px">{{ err }}</p>
         <dl v-if="!editing" class="kv">
@@ -150,7 +194,7 @@ const printCard = () => {
             <input v-if="x.ro" :id="'e-' + x.k" class="input" :value="maskNik(ef[x.k])" disabled />
             <select v-else-if="x.opt" :id="'e-' + x.k" v-model="ef[x.k]" class="select"><option value="">-</option><option v-for="o in x.opt" :key="o" :value="o">{{ x.k === 'jk' ? (o === 'L' ? 'Laki-laki' : 'Perempuan') : o }}</option></select>
             <textarea v-else-if="x.area" :id="'e-' + x.k" v-model="ef[x.k]" class="textarea" />
-            <input v-else :id="'e-' + x.k" v-model="ef[x.k]" class="input" :type="x.type || 'text'" />
+            <input v-else :id="'e-' + x.k" v-model="ef[x.k]" class="input" :class="{ mono: NUMERIC[x.k] }" :type="x.type || 'text'" :inputmode="NUMERIC[x.k]?.mode" :maxlength="NUMERIC[x.k]?.max" />
           </div>
         </div>
       </template>
@@ -201,6 +245,11 @@ const printCard = () => {
       <template #footer><button class="btn" @click="rsvOpen = false">Tutup</button><button class="btn btn-primary" @click="saveRsv">Simpan reservasi</button></template>
     </AppModal>
 
+    <AppModal v-model="delOpen" title="Hapus pasien">
+      <p>Hapus data pasien <b>{{ pt.nama }}</b> (NIK {{ maskNik(pt.nik) }})? Data akan dihapus dari server dan NIK-nya dapat didaftarkan ulang.</p>
+      <template #footer><button class="btn" :disabled="deleting" @click="delOpen = false">Batal</button><button class="btn btn-danger" :disabled="deleting" @click="hapus">{{ deleting ? 'Menghapus…' : 'Hapus' }}</button></template>
+    </AppModal>
+
     <AppModal v-model="cardOpen" title="Kartu pasien">
       <div class="ticket" style="width: 340px; text-align: left; border-style: solid">
         <div class="bold" style="font-size: 14px">RS SPKD</div>
@@ -215,7 +264,8 @@ const printCard = () => {
       <template #footer><button class="btn" @click="cardOpen = false">Tutup</button><button class="btn btn-primary" @click="printCard"><AppIcon name="print" /> Cetak</button></template>
     </AppModal>
   </div>
-  <div v-else class="card"><p>Pasien tidak ditemukan.</p><NuxtLink to="/pasien" class="btn" style="margin-top: 12px">Kembali ke daftar pasien</NuxtLink></div>
+  <div v-else-if="loading" class="card"><p class="muted">Memuat data pasien…</p></div>
+  <div v-else class="card"><p>{{ loadErr || 'Pasien tidak ditemukan.' }}</p><NuxtLink to="/pasien" class="btn" style="margin-top: 12px">Kembali ke daftar pasien</NuxtLink></div>
 </template>
 
 <style>

@@ -3,6 +3,8 @@ export default defineNuxtConfig({
   ssr: false,
   devtools: { enabled: false },
   css: ['~/assets/css/main.css'],
+  // Override dengan env NUXT_PUBLIC_API_BASE (mis. http://localhost:8080).
+  runtimeConfig: { public: { apiBase: 'http://100.113.18.8:8080' } },
   app: {
     head: {
       title: 'SIMRS SPKD',
