@@ -92,8 +92,9 @@ const detailPt = computed(() => (detail.value?.patientId ? patient(detail.value.
             </select>
           </div>
           <p v-if="loketErr" class="alert err small" role="alert" style="margin-top: 8px">{{ loketErr }}</p>
-          <div class="muted small" style="margin-top: 6px">{{ loket?.nama || 'Loket' }} · {{ aktif?.raw === 'SERVING' ? 'sedang dilayani' : 'sedang dipanggil' }}</div>
+          <div class="muted small" style="margin-top: 6px">{{ loket?.nama || 'Loket' }} · {{ !aktif ? 'belum memanggil nomor' : aktif.raw === 'SERVING' ? 'sedang dilayani' : 'sedang dipanggil' }}</div>
           <div class="bignum">{{ aktif ? aktif.nomor : '-' }}</div>
+          <p v-if="!aktif && !tertinggal && menunggu.length" class="muted small" style="margin: -4px 0 10px">Tekan <b>Panggil berikutnya</b> untuk memanggil <b class="mono">{{ menunggu[0].nomor }}</b>.</p>
           <div v-if="aktif" class="row" style="margin-bottom: 8px"><StatusBadge :value="aktif.status" /><span class="muted small">diambil {{ fmtJam(aktif.jam) }}<template v-if="aktif.nama"> · {{ aktif.nama }}</template></span></div>
           <div v-if="tertinggal" class="alert warn small" role="alert" style="margin-bottom: 10px">
             Nomor <b class="mono">{{ tertinggal.nomor }}</b> dari {{ fmtTgl(tertinggal.tanggal) }} masih tertahan di loket ini.

@@ -1,8 +1,12 @@
-// Antrean loket dari backend (/api/v1/counters, /api/v1/queues, khusus role front_office).
+// Antrean loket dari backend (/api/v1/counters khusus front_office; /api/v1/queues front_office & dokter —
+// dokter selalu hanya mendapat pasiennya sendiri, front_office boleh menyaring lewat doctor_id).
 // Tiket loket diterbitkan server saat kunjungan didaftarkan (POST /api/v1/visits) — tidak ada endpoint ambil nomor.
 // Alur: WAITING -next-> CALLING -serve-> SERVING -complete-> COMPLETED; CALLING -skip-> SKIPPED; recall = bunyikan bel lagi.
 // Semua tampilan dibatasi ke tanggal hari ini (queue_date). Tiket hari sebelumnya yang masih dipegang loket
 // ditandai "tertinggal": tidak ditampilkan sebagai panggilan aktif, tetapi harus diselesaikan/dilewati agar loket bebas.
+
+/** poli/doctor di respons berupa objek { id, name, ... }. */
+const nama = (x: any) => (typeof x === 'string' ? x : x?.name || '')
 
 const STATUS: Record<string, string> = { WAITING: 'menunggu', CALLING: 'dipanggil', SERVING: 'dilayani', COMPLETED: 'selesai', SKIPPED: 'dilewati' }
 const LOKET_KEY = 'spkd-loket'
@@ -14,15 +18,18 @@ export const fmtNomorLoket = (n?: string | null) => (n ? n.replace(/^([A-Za-z]+)
 const view = (q: any) => q && {
   id: q.id,
   nomor: fmtNomorLoket(q.queue_number),
-  tanggal: (q.queue_date || '').slice(0, 10),
+  // queue_date bisa "YYYY-MM-DD" atau timestamp (UTC) — timestamp dikonversi ke tanggal lokal
+  tanggal: (q.queue_date || '').length > 10 ? dateOf(q.queue_date) : q.queue_date || '',
   status: STATUS[q.status] || q.status,
   raw: q.status as string,
   loketId: q.counter?.id || '',
   loketNama: q.counter?.name || '',
   nama: q.patient?.full_name || '',
   rm: rmOf(q.patient?.medical_record_number),
-  poli: q.poli || '',
-  dokter: q.doctor || '',
+  poli: nama(q.poli),
+  poliId: q.poli?.id || '',
+  dokter: nama(q.doctor),
+  dokterId: q.doctor?.id || '',
   nomorPoli: q.poli_queue_number || '',
   visitId: q.visit_id || '',
   dipanggil: q.call_count || 0,
@@ -48,10 +55,10 @@ export function useCounters() {
   const tertinggal = computed(() => loket.value?.tertinggal || null)
 
   /** Semua tiket satu tanggal (semua halaman, urutan panggil dari server). */
-  const tiketTanggal = async (date: string) => {
+  const tiketTanggal = async (date: string, doctorId = '') => {
     const out: any[] = []
     for (let page = 1; page <= 20; page++) {
-      const r = await apiPage('/api/v1/queues', { query: { date, page, limit: 100 } })
+      const r = await apiPage('/api/v1/queues', { query: { date, doctor_id: doctorId, page, limit: 100 } })
       out.push(...r.data)
       if (!r.pagination?.has_next_page) break
     }
@@ -94,7 +101,10 @@ export function useCounters() {
     return err
   }
 
-  return { lokets, loketId, loket, aktif, tertinggal, menunggu, log, hariIni, refresh, poll, setAktif,
+  /** Antrean satu dokter (bentuk tampilan). Untuk akun dokter, server mengabaikan doctorId dan memakai dokter akun. */
+  const antreanDokter = async (date = todayStr(), doctorId = '') => (await tiketTanggal(date, doctorId)).map(view)
+
+  return { antreanDokter, lokets, loketId, loket, aktif, tertinggal, menunggu, log, hariIni, refresh, poll, setAktif,
     next: () => act('next'), serve: () => act('serve'), recall: () => act('recall'), skip: () => act('skip'), complete: () => act('complete') }
 }
 
