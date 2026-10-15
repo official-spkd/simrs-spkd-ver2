@@ -1,7 +1,7 @@
 // Kunjungan dari backend (/api/v1/visits, khusus role front_office).
 // Backend baru menyediakan buat/daftar/detail — belum ada endpoint ubah status — jadi hasilnya disalin ke
 // db.visits dan alur lanjutan (panggil poli, SOAP, kasir, batal) masih berjalan lokal di atas salinan itu.
-// Poli & dokter di backend berupa teks nama; dicocokkan ke master lokal lewat nama.
+// Poli & dokter di respons berupa objek { id, name, ... }; dicocokkan ke master lokal lewat serverId, cadangan nama.
 
 const PENJAMIN_API: Record<string, string> = { Umum: 'umum', BPJS: 'bpjs', Asuransi: 'asuransi' }
 const PENJAMIN: Record<string, string> = { umum: 'Umum', bpjs: 'BPJS', asuransi: 'Asuransi' }
@@ -12,6 +12,8 @@ const ANTRE: Record<string, string> = { Waiting: 'menunggu', Called: 'dipanggil'
 export function useVisits() {
   const { db, poli, doctor } = useDb()
   const norm = (s: string) => (s || '').trim().toLowerCase()
+  const poliOf = (r: any) => (r.poli?.id && db.polis.find((p: any) => p.serverId === r.poli.id)) || db.polis.find((p: any) => norm(p.nama) === norm(r.poli?.name))
+  const doctorOf = (r: any) => (r.doctor?.id && db.doctors.find((d: any) => d.serverId === r.doctor.id)) || db.doctors.find((d: any) => norm(d.nama) === norm(r.doctor?.name))
 
   /** Pasien yang belum ada di cache: simpan ringkasan dari kunjungan agar PatientBanner & daftar bisa menampilkan. */
   const cachePatient = (r: any) => {
@@ -25,7 +27,6 @@ export function useVisits() {
 
   /** Bentuk tampilan langsung dari respons server (tanpa menyaring poli/dokter, status = status server). */
   const view = (r: any) => {
-    const pl = db.polis.find((p: any) => norm(p.nama) === norm(r.poli))
     return {
       id: r.id,
       tanggal: (r.visit_date || '').slice(0, 10),
@@ -33,8 +34,8 @@ export function useVisits() {
       patientId: r.patient?.id || '',
       rm: rmOf(r.patient?.medical_record_number),
       nama: r.patient?.full_name || '(pasien tidak ditemukan)',
-      poliNama: r.poli,
-      dokterNama: r.doctor,
+      poliNama: r.poli?.name || '',
+      dokterNama: r.doctor?.name || '',
       penjamin: PENJAMIN[r.penjamin] || r.penjamin,
       tipe: r.visit_type,
       status: STATUS[r.visit_status] || r.visit_status,
@@ -44,10 +45,10 @@ export function useVisits() {
       pj: r.responsible_person || '',
       alergi: r.allergies || '',
       bpjs: r.bpjs_card_number || '', noRujukan: r.fktp_referral_number || '', noKontrol: r.control_letter_number || '',
-      asuransi: r.insurance_name || '', noPolis: r.policy_number || '', plafon: r.coverage_limit || 0,
+      asuransi: r.insurance_name || '', noPolis: r.policy_number || '', plafon: r.coverage_limit || 0, disetujui: !!r.is_approved,
       dokumen: r.document_type || '',
       dibuat: r.created_at,
-      diMaster: !!pl && db.doctors.some((d: any) => norm(d.nama) === norm(r.doctor)),
+      diMaster: !!poliOf(r) && !!doctorOf(r),
     }
   }
 
@@ -55,8 +56,8 @@ export function useVisits() {
    *  Mengembalikan null bila nama poli/dokter tidak ada di master lokal (halaman poli/kasir butuh keduanya valid). */
   const cache = (r: any) => {
     cachePatient(r)
-    const pl = db.polis.find((p: any) => norm(p.nama) === norm(r.poli))
-    const dr = (r.doctor_id && db.doctors.find((d: any) => d.serverId === r.doctor_id)) || db.doctors.find((d: any) => norm(d.nama) === norm(r.doctor))
+    const pl = poliOf(r)
+    const dr = doctorOf(r)
     if (!pl || !dr) return null
     const old = db.visits.find((v: any) => v.id === r.id)
     const penjamin = PENJAMIN[r.penjamin] || 'Umum'
@@ -68,8 +69,8 @@ export function useVisits() {
       tanggal: (r.visit_date || '').slice(0, 10),
       poliId: pl.id,
       doctorId: dr.id,
-      poliNama: r.poli,
-      dokterNama: r.doctor,
+      poliNama: r.poli?.name || pl.nama,
+      dokterNama: r.doctor?.name || dr.nama,
       penjamin,
       tipe: r.visit_type,
       keluhan: r.chief_complaint || '',
@@ -105,7 +106,7 @@ export function useVisits() {
     noKunjungan: `RJ-${r.visit_date.slice(2, 4)}${r.visit_date.slice(5, 7)}-${r.queue_number}`,
     patientId: r.patient?.id,
     tanggal: (r.visit_date || '').slice(0, 10),
-    poliId: '', doctorId: '', poliNama: r.poli, dokterNama: r.doctor,
+    poliId: '', doctorId: '', poliNama: r.poli?.name || '', dokterNama: r.doctor?.name || '',
     status: STATUS[r.visit_status] || r.visit_status,
     jamDaftar: r.created_at,
     readonly: true,
@@ -116,7 +117,7 @@ export function useVisits() {
     const body: Record<string, any> = {
       patient_id: f.patientId,
       visit_date: f.tanggal || todayStr(),
-      // poli diambil server dari dokter
+      poli_id: poli(f.poliId)?.serverId,
       doctor_id: doctor(f.doctorId)?.serverId,
       penjamin: PENJAMIN_API[f.penjamin] || 'umum',
       visit_type: f.tipe || 'baru',
@@ -135,12 +136,14 @@ export function useVisits() {
       body.insurance_name = f.asuransiNama
       body.policy_number = f.noPolis
       body.coverage_limit = Number(f.plafon) || 0
+      if (f.disetujui != null) body.is_approved = !!f.disetujui
     }
     return body
   }
 
   const create = async (f: any) => {
     if (!isServerId(f.patientId)) throw new Error('Pasien ini data contoh lokal dan belum ada di server. Daftarkan pasien lewat menu Pasien Baru.')
+    if (!poli(f.poliId)?.serverId) throw new Error('Poli ini data contoh lokal dan belum ada di server. Tambahkan poli lewat Master Poli & Dokter.')
     if (!doctor(f.doctorId)?.serverId) throw new Error('Dokter ini data contoh lokal dan belum ada di server. Tambahkan dokter lewat Master Poli & Dokter.')
     const v = cache(await api('/api/v1/visits', { method: 'POST', body: toApi(f) }))
     if (!v) throw new Error('Kunjungan tersimpan di server, tetapi nama poli/dokter tidak cocok dengan master lokal')
@@ -159,9 +162,10 @@ export function useVisits() {
   }
 
   /** Untuk tabel: satu halaman langsung dari server. Kunjungan yang cocok master juga disalin ke cache (untuk poli/kasir). */
+  /** poli = ID poli server (poli_id). */
   const listView = async (q: { date?: string; poli?: string; status?: string; search?: string; page?: number; limit?: number } = {}) => {
     const res = await apiPage('/api/v1/visits', {
-      query: { date: q.date, poli: q.poli, search: q.search?.trim(), visit_status: q.status ? STATUS_API[q.status] : '', page: q.page || 1, limit: q.limit || 10 },
+      query: { date: q.date, poli_id: q.poli, search: q.search?.trim(), visit_status: q.status ? STATUS_API[q.status] : '', page: q.page || 1, limit: q.limit || 10 },
     })
     res.data.forEach((r) => cache(r))
     return { rows: res.data.map(view), pagination: res.pagination }

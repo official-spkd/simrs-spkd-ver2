@@ -138,7 +138,7 @@ const detailPt = computed(() => (detail.value?.patientId ? patient(detail.value.
             <label for="f-poli" class="small">Poli</label>
             <select id="f-poli" v-model="fPoli" class="select">
               <option value="">Semua poli</option>
-              <option v-for="p in db.polis" :key="p.id" :value="p.nama">{{ p.nama }}</option>
+              <option v-for="p in db.polis.filter((x: any) => x.serverId)" :key="p.id" :value="p.serverId">{{ p.nama }}</option>
             </select>
           </div>
           <div class="field">
