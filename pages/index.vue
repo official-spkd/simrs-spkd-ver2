@@ -26,7 +26,8 @@ const sisaTagihan = computed(() => siapBayar.value.reduce((s: number, v: any) =>
 </script>
 
 <template>
-  <div v-if="user">
+  <KasirBeranda v-if="user && role === 'kasir'" />
+  <div v-else-if="user">
     <PageHead code="GL-02" :role="ROLE_LABEL[role]" :title="`Selamat datang, ${user.nama}`" :subtitle="`Ringkasan hari ini · ${fmtTglPanjang()}`" />
 
     <div class="grid g4">

@@ -23,8 +23,16 @@ onMounted(() => {
   timer = setInterval(flushOutbox, 5000)
   onBeforeUnmount(() => { window.removeEventListener('keydown', f); clearInterval(timer) })
 })
+const activeTo = computed(() => {
+  const m = nav.value.filter((n) => n.to === route.path || (n.to !== '/' && route.path.startsWith(n.to + '/')))
+  return m.sort((a, b) => b.to.length - a.to.length)[0]?.to
+})
+const KASIR_CRUMB: Record<string, string> = { '/': 'Beranda', '/kasir': 'Worklist Tagihan', '/kasir/pembayaran': 'Pembayaran', '/kasir/invoice': 'Invoice & Kwitansi', '/kasir/shift': 'Rekap Penerimaan Shift' }
 const crumbs = computed(() => {
-  const cur = nav.value.find((n) => n.to === route.path) || [...nav.value].reverse().find((n) => n.to !== '/' && route.path.startsWith(n.to))
+  if (user.value?.role === 'kasir' && (route.path === '/' || route.path.startsWith('/kasir'))) {
+    return ['Rawat jalan', 'Kasir', KASIR_CRUMB[route.path] || 'Detail Tagihan']
+  }
+  const cur = nav.value.find((n) => n.to === activeTo.value)
   return ['Rawat jalan', cur?.label || 'Halaman']
 })
 const readAll = () => { db.notifications.forEach((n: any) => (n.dibaca = true)) }
@@ -39,7 +47,7 @@ const readAll = () => { db.notifications.forEach((n: any) => (n.dibaca = true)) 
       </div>
       <div class="role-tag">{{ ROLE_SHORT[user.role as Role] }}</div>
       <nav class="nav">
-        <NuxtLink v-for="n in nav" :key="n.to" :to="n.to" :exact="n.to === '/'"><AppIcon :name="n.icon" /> {{ n.label }}</NuxtLink>
+        <NuxtLink v-for="n in nav" :key="n.to" :to="n.to" :class="{ on: n.to === activeTo }"><AppIcon :name="n.icon" /> {{ n.label }}</NuxtLink>
       </nav>
       <div class="unit-card">
         <small>UNIT AKTIF</small>

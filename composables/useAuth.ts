@@ -27,9 +27,11 @@ export const NAV: Record<Role, NavItem[]> = {
   ],
   kasir: [
     { label: 'Beranda', to: '/', icon: 'home' },
-    { label: 'Worklist tagihan', to: '/kasir', icon: 'receipt' },
-    { label: 'Rekap shift', to: '/kasir/shift', icon: 'wallet' },
-    { label: 'Data pasien', to: '/pasien', icon: 'users' },
+    { label: 'Worklist tagihan', to: '/kasir', icon: 'grid' },
+    { label: 'Pembayaran', to: '/kasir/pembayaran', icon: 'clipboard' },
+    { label: 'Invoice & kwitansi', to: '/kasir/invoice', icon: 'users' },
+    { label: 'Rekap shift', to: '/kasir/shift', icon: 'calendar' },
+    { label: 'Data pasien · baca', to: '/pasien', icon: 'activity' },
   ],
   mgmt: [
     { label: 'Beranda', to: '/', icon: 'home' },

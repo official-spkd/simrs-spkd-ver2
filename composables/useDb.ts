@@ -26,7 +26,7 @@ function seed() {
     { id: 'poli-gg', kode: 'GG', nama: 'Gigi', ruang: 'Ruang 5', aktif: true },
   ]
   const doctors = [
-    { id: 'dr-maya', nama: 'dr. Maya Sari, Sp.PD', spesialis: 'Penyakit Dalam', poliId: 'poli-pd', sip: 'SIP-PD-0192', str: 'STR-3321', ihs: 'N10000001' },
+    { id: 'dr-maya', nama: 'dr. Maya Putri, Sp.PD', spesialis: 'Penyakit Dalam', poliId: 'poli-pd', sip: 'SIP-PD-0192', str: 'STR-3321', ihs: 'N10000001' },
     { id: 'dr-sari', nama: 'dr. Sari Wulandari, Sp.A', spesialis: 'Anak', poliId: 'poli-an', sip: 'SIP-AN-0457', str: 'STR-5502', ihs: 'N10000002' },
     { id: 'dr-andi', nama: 'dr. Andi Pratama', spesialis: 'Umum', poliId: 'poli-um', sip: 'SIP-UM-0881', str: 'STR-7710', ihs: '' },
     { id: 'dr-raka', nama: 'drg. Raka Putra', spesialis: 'Gigi', poliId: 'poli-gg', sip: 'SIP-GG-0220', str: 'STR-1204', ihs: 'N10000004' },
@@ -46,7 +46,7 @@ function seed() {
     penjamin: pj, noKartu: kartu, asuransi: pj === 'Asuransi' ? 'Prudential' : '', noPolis: pj === 'Asuransi' ? 'POL-77821' : '', alergi, createdAt: at(7),
   })
   const patients = [
-    mk('p1', '000128', '3273011205800001', 'Budi Santoso', '1980-05-12', 'L', '081211110001', 'Umum'),
+    mk('p1', '000128', '3273011205800001', 'Budi Santoso', '1980-05-12', 'L', '081211110001', 'Umum', '', 'Penisilin'),
     mk('p2', '000203', '3273014403900002', 'Nadia Putri', '2018-03-04', 'P', '081211110002', 'BPJS', '0001234567890', 'Penisilin'),
     mk('p3', '000174', '3273010101750003', 'Rudi Hartono', '1975-01-01', 'L', '081211110003', 'Umum'),
     mk('p4', '000098', '3273015507700004', 'Siti Aminah', '1970-07-15', 'P', '081211110004', 'BPJS', '0001234567891', 'Seafood'),
@@ -101,7 +101,9 @@ function seed() {
     visits.push(v)
     return v
   }
-  addVisit('p1', 'poli-pd', 'dr-maya', 'loket', 'terdaftar', 'menunggu', 8, { satuSehat: 'antrian' })
+  // Budi Santoso: kunjungan selesai + tagihan final (INV-…-00128), siap disimulasikan pembayarannya di KS-03
+  const ym = t.slice(2, 4) + t.slice(5, 7), ymd = t.slice(2).replace(/-/g, '')
+  const v1 = addVisit('p1', 'poli-pd', 'dr-maya', 'loket', 'selesai', 'selesai', 8, { noKunjungan: `RJ-${ym}-000128`, jamDaftar: at(8, 44), jamPanggil: at(8, 58), jamMulai: at(9, 2), jamSelesai: at(9, 8), caraPulang: 'pulang', kondisiPulang: 'membaik', satuSehat: 'antrian' })
   addVisit('p2', 'poli-an', 'dr-sari', 'apm', 'terdaftar', 'menunggu', 8, { satuSehat: 'terkirim' })
   addVisit('p3', 'poli-um', 'dr-andi', 'loket', 'dilayani', 'dilayani', 8, { jamPanggil: at(8, 40), jamMulai: at(8, 45) })
   const v4 = addVisit('p4', 'poli-pd', 'dr-maya', 'apm', 'selesai', 'selesai', 7, { jamPanggil: at(7, 30), jamMulai: at(7, 35), jamSelesai: at(8, 5), satuSehat: 'antrian', caraPulang: 'pulang', kondisiPulang: 'membaik' })
@@ -117,11 +119,20 @@ function seed() {
     v5: { s: 'Gigi berlubang sisi kanan bawah.', fisik: 'Karies dentin gigi 46.', diagUtama: { kode: 'K02.1', nama: 'Karies dentin' }, diagSekunder: [], asesmen: 'Karies profunda.', p: 'Scaling dan tambal.', tindakLanjut: 'pulang', lampiran: [], signed: true, signedAt: at(7, 48), addenda: [] },
   }
   const orders: any = {
-    v4: [{ id: 'od1', visitId: 'v4', jenis: 'resep', nama: 'Amlodipine 10 mg tab', refId: 'o3', dosis: '10 mg', aturan: '1 x 1 sesudah makan', jumlah: 14, racikan: false, catatan: '', pelaksana: '' }, { id: 'od2', visitId: 'v4', jenis: 'tindakan', nama: 'EKG 12 lead', refId: 't-ekg', dosis: '', aturan: '', jumlah: 1, racikan: false, catatan: '', pelaksana: 'dr. Maya Sari, Sp.PD' }],
+    v4: [{ id: 'od1', visitId: 'v4', jenis: 'resep', nama: 'Amlodipine 10 mg tab', refId: 'o3', dosis: '10 mg', aturan: '1 x 1 sesudah makan', jumlah: 14, racikan: false, catatan: '', pelaksana: '' }, { id: 'od2', visitId: 'v4', jenis: 'tindakan', nama: 'EKG 12 lead', refId: 't-ekg', dosis: '', aturan: '', jumlah: 1, racikan: false, catatan: '', pelaksana: 'dr. Maya Putri, Sp.PD' }],
     v5: [{ id: 'od3', visitId: 'v5', jenis: 'tindakan', nama: 'Scaling gigi', refId: 't-scaling', dosis: '', aturan: '', jumlah: 1, racikan: false, catatan: '', pelaksana: 'drg. Raka Putra' }],
   }
   const bills: any = {
-    v5: { visitId: 'v5', status: 'lunas', skema: 'Asuransi', plafon: 500000, selisih: 0, diskon: { nominal: 0, alasan: '' }, manual: [], noInv: `INV/${t.replace(/-/g, '')}/0001`, finalAt: at(8), items: [], payments: [{ id: 'pay1', metode: 'Tunai', jumlah: 0, at: at(8, 5), ref: '', kasir: 'Rina Kasir' }], noKw: `KW/${t.replace(/-/g, '')}/0001` },
+    v1: {
+      visitId: 'v1', status: 'final', skema: 'Tunai', plafon: 0, selisih: 0, diskon: { nominal: 0, alasan: '' }, manual: [], noInv: `INV-${ymd}-00128`, finalAt: at(9, 10), payments: [], noKw: '',
+      items: [
+        { id: 'x1', kategori: 'Administrasi', nama: 'karcis', sumber: 'Dina', at: at(8, 44), tarif: 20000, qty: 1, subtotal: 20000, manual: false, alasan: '' },
+        { id: 'x2', kategori: 'Konsultasi', nama: 'spesialis', sumber: 'dr. Maya', at: at(9, 5), tarif: 150000, qty: 1, subtotal: 150000, manual: false, alasan: '' },
+        { id: 'x3', kategori: 'Tindakan', nama: 'edukasi terstruktur', sumber: 'dr. Maya', at: at(9, 6), tarif: 50000, qty: 1, subtotal: 50000, manual: false, alasan: '' },
+        { id: 'x4', kategori: 'Obat / resep', nama: 'Amlodipine 5 mg', sumber: 'dr. Maya', at: at(9, 6), tarif: 1000, qty: 30, subtotal: 30000, manual: false, alasan: '' },
+      ],
+    },
+    v5: { visitId: 'v5', status: 'lunas', skema: 'Asuransi', plafon: 500000, selisih: 0, diskon: { nominal: 0, alasan: '' }, manual: [], noInv: `INV-${ymd}-00001`, finalAt: at(8), items: [], payments: [{ id: 'pay1', metode: 'Tunai', jumlah: 0, at: at(8, 5), ref: '', kasir: 'Rina Kasir' }], noKw: `KW-${ymd}-00001` },
   }
   const reservations = [
     { id: 'r1', kode: `BK-${t.slice(2).replace(/-/g, '')}-006`, patientId: 'p8', poliId: 'poli-pd', doctorId: 'dr-maya', tanggal: t, kanal: 'loket', status: 'booked', jam: '09.30', dibuat: at(7) },
@@ -138,11 +149,12 @@ function seed() {
   ]
   counters[`${t}|loket`] = 15
   counters[`${t}|visit`] = visits.length
-  counters[`${t}|inv`] = 1
+  counters[`${t}|inv`] = 128
+  counters[`${t}|kw`] = 23
   counters[`${t}|rsv`] = 7
   const users = [
     { id: 'u1', nama: 'Dina Rahma', username: 'fo', password: 'demo123', role: 'fo', unit: 'Loket 2 · Rawat Jalan', aktif: true, loginTerakhir: at(7), nakes: null },
-    { id: 'u2', nama: 'dr. Maya Sari, Sp.PD', username: 'dokter', password: 'demo123', role: 'dokter', unit: 'Poli Penyakit Dalam', poliId: 'poli-pd', doctorId: 'dr-maya', aktif: true, loginTerakhir: at(7), nakes: 'SIP-PD-0192 / STR-3321' },
+    { id: 'u2', nama: 'dr. Maya Putri, Sp.PD', username: 'dokter', password: 'demo123', role: 'dokter', unit: 'Poli Penyakit Dalam', poliId: 'poli-pd', doctorId: 'dr-maya', aktif: true, loginTerakhir: at(7), nakes: 'SIP-PD-0192 / STR-3321' },
     { id: 'u3', nama: 'Rina Kasir', username: 'kasir', password: 'demo123', role: 'kasir', unit: 'Kasir Rawat Jalan', aktif: true, loginTerakhir: at(7), nakes: null },
     { id: 'u4', nama: 'Pak Sofian', username: 'manajemen', password: 'demo123', role: 'mgmt', unit: 'Manajemen RS', aktif: true, loginTerakhir: at(6), nakes: null },
     { id: 'u5', nama: 'Tim IT RS', username: 'it', password: 'demo123', role: 'it', unit: 'Instalasi SIMRS', aktif: true, loginTerakhir: at(6), nakes: null },
@@ -168,7 +180,7 @@ function seed() {
     { id: 'ob4', at: at(8, 3), modul: 'VClaim', resource: 'SEP', ref: 'v2', status: 'terkirim', percobaan: 1, galat: '' },
   ]
   return {
-    version: 1, polis, doctors, schedules, cuti: [] as any[], patients, tarif, obat, icd10, visits, reservations, loket, counters, vitals, soap, orders, bills,
+    version: 2, polis, doctors, schedules, cuti: [] as any[], patients, tarif, obat, icd10, visits, reservations, loket, counters, vitals, soap, orders, bills,
     users, matrix, modules, devices, outbox, audit: [] as any[], queueLog: [] as any[], lastCall: null as any, shifts: [
       { id: 'sh1', kasir: 'Rina Kasir', mulai: at(7), selesai: null, closed: false },
     ], integrasi: { satuSehat: { nama: 'Satu Sehat (FHIR)', status: 'online', mode: 'mock', tokenExpiry: at(23) }, vclaim: { nama: 'BPJS VClaim', status: 'stub', mode: 'mock', tokenExpiry: at(23) }, antrol: { nama: 'BPJS Antrol', status: 'ditunda', mode: 'mock', tokenExpiry: null } },
@@ -182,7 +194,7 @@ function load(): any {
     const raw = localStorage.getItem(KEY)
     if (raw) {
       const d = JSON.parse(raw)
-      if (d.version === 1 && d.seedDate === todayStr()) return d
+      if (d.version === 2 && d.seedDate === todayStr()) return d
     }
   } catch {}
   return seed()
@@ -570,13 +582,13 @@ export function useDb() {
     if (b.status !== 'draf') return b
     b.items = JSON.parse(JSON.stringify(billItems(visitId)))
     b.status = 'final'
-    b.noInv = `INV/${todayStr().replace(/-/g, '')}/${pad(nextCounter('inv'), 4)}`
+    b.noInv = `INV-${todayStr().slice(2).replace(/-/g, '')}-${pad(nextCounter('inv'), 5)}`
     b.finalAt = nowIso()
     audit('finalkan tagihan', `${v.noKunjungan} · ${b.noInv}`)
     return b
   }
   const currentShift = () => db.shifts.find((s: any) => !s.closed && s.kasir === (user.value?.nama || 'Rina Kasir')) || db.shifts.find((s: any) => !s.closed)
-  const pay = (visitId: string, parts: { metode: string; jumlah: number; ref?: string }[]) => {
+  const pay = (visitId: string, parts: { metode: string; jumlah: number; ref?: string; diterima?: number }[]) => {
     const v = visit(visitId)
     const b = db.bills[visitId]
     if (!b || b.status !== 'final') throw new Error('Finalkan tagihan terlebih dahulu')
@@ -588,17 +600,17 @@ export function useDb() {
     const shift = currentShift()
     parts.forEach((p) => {
       const j = Math.min(Number(p.jumlah), remain); remain -= j
-      b.payments.push({ id: uid('pay'), metode: p.metode, jumlah: j, at: nowIso(), ref: p.ref || '', kasir: user.value?.nama || '-', shiftId: shift?.id })
+      b.payments.push({ id: uid('pay'), metode: p.metode, jumlah: j, at: nowIso(), ref: p.ref || '', diterima: p.diterima, kasir: user.value?.nama || '-', shiftId: shift?.id })
     })
     if (!b.payments.length) b.payments.push({ id: uid('pay'), metode: 'Tunai', jumlah: 0, at: nowIso(), ref: 'BPJS', kasir: user.value?.nama || '-', shiftId: shift?.id })
     b.status = 'lunas'; v.status = 'lunas'
-    b.noKw = `KW/${todayStr().replace(/-/g, '')}/${pad(nextCounter('kw'), 4)}`
+    b.noKw = `KW-${todayStr().slice(2).replace(/-/g, '')}-${pad(nextCounter('kw'), 5)}`
     audit('terima pembayaran', `${v.noKunjungan} · ${b.noKw}`)
     return b
   }
-  const closeShift = (id: string) => {
+  const closeShift = (id: string, rekon?: { tunaiHitung: number; catatan: string }) => {
     const s = db.shifts.find((x: any) => x.id === id)
-    s.closed = true; s.selesai = nowIso()
+    s.closed = true; s.selesai = nowIso(); if (rekon) s.rekon = rekon
     db.shifts.push({ id: uid('sh'), kasir: s.kasir, mulai: nowIso(), selesai: null, closed: false })
     audit('tutup shift', s.kasir)
   }
