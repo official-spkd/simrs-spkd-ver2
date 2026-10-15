@@ -4,13 +4,23 @@ const { db, patient, poli, doctor, doctorsOfPoli, sessionFor, createReservation,
 const toast = useToast()
 
 const fStatus = ref('')
-const semua = ref(false)
-const rows = computed(() =>
-  db.reservations
-    .filter((r: any) => (semua.value || r.tanggal >= todayStr()) && (!fStatus.value || r.status === fStatus.value))
+const fPoli = ref('')
+const fCari = ref('')
+const tab = ref('hari')
+const inTab = (r: any, k: string) => (k === 'hari' ? r.tanggal === todayStr() : k === 'depan' ? r.tanggal > todayStr() : true)
+const tabs = computed(() => [
+  { key: 'hari', label: `Hari ini · ${db.reservations.filter((r: any) => inTab(r, 'hari')).length}` },
+  { key: 'depan', label: `Mendatang · ${db.reservations.filter((r: any) => inTab(r, 'depan')).length}` },
+  { key: 'semua', label: 'Semua' },
+])
+const rows = computed(() => {
+  const s = fCari.value.trim().toLowerCase()
+  return db.reservations
+    .filter((r: any) => inTab(r, tab.value) && (!fStatus.value || r.status === fStatus.value) && (!fPoli.value || r.poliId === fPoli.value) &&
+      (!s || r.kode.toLowerCase().includes(s) || (patient(r.patientId)?.nama || '').toLowerCase().includes(s) || (patient(r.patientId)?.rm || '').includes(s)))
     .slice()
-    .sort((a: any, b: any) => (a.tanggal === b.tanggal ? (a.kode > b.kode ? 1 : -1) : a.tanggal > b.tanggal ? 1 : -1)),
-)
+    .sort((a: any, b: any) => (a.tanggal === b.tanggal ? (a.kode > b.kode ? 1 : -1) : a.tanggal > b.tanggal ? 1 : -1))
+})
 const statusOf = (r: any) => (r.status === 'booked' && r.tanggal < todayStr() ? 'no-show' : r.status)
 
 // tambah
@@ -62,39 +72,59 @@ const doBatal = () => { toast.attempt(() => cancelReservation(b.value.id), `Rese
 
 <template>
   <div>
-    <PageHead code="FO-08" role="Front Office" title="Daftar Reservasi" subtitle="Satu reservasi per pasien per poli per tanggal. Kuota sesi terpotong saat reservasi dibuat.">
-      <template #actions><button class="btn btn-primary" @click="openForm"><AppIcon name="plus" /> Reservasi</button></template>
+    <PageHead code="FO-08" role="Front Office / Admin" title="Daftar Reservasi & Booking Mobile JKN" subtitle="Pendaftaran online, booking Mobile JKN, dan reservasi manual · Maksimal 30 hari ke depan">
+      <template #actions><button class="btn btn-primary" @click="openForm"><AppIcon name="plus" /> Tambah reservasi</button></template>
     </PageHead>
 
-    <div class="card">
-      <div class="filters">
-        <div class="field"><label for="rs-st" class="small">Status</label>
-          <select id="rs-st" v-model="fStatus" class="select"><option value="">Semua status</option><option v-for="s in ['booked', 'check-in', 'batal', 'no-show']" :key="s" :value="s">{{ s }}</option></select></div>
-        <label class="check" style="align-self: center"><input v-model="semua" type="checkbox" /><span>Termasuk tanggal lampau</span></label>
+    <AppTabs v-model="tab" :tabs="tabs" />
+
+    <div class="kl-filters">
+      <select v-model="fPoli" class="select" aria-label="Filter poli"><option value="">Semua poli</option><option v-for="p in polisAktif" :key="p.id" :value="p.id">{{ p.nama }}</option></select>
+      <select id="rs-st" v-model="fStatus" class="select" aria-label="Filter status"><option value="">Semua status</option><option v-for="s in ['booked', 'check-in', 'batal', 'no-show']" :key="s" :value="s">{{ s }}</option></select>
+      <input v-model="fCari" class="input q" placeholder="Cari pasien / booking" aria-label="Cari pasien atau booking" />
+    </div>
+
+    <div class="kl-cols">
+      <div class="kl-col">
+        <div class="panel">
+          <h2>Reservasi &amp; check-in</h2>
+          <div class="table-wrap">
+            <table class="tbl rtable">
+              <thead><tr><th>Kode Booking</th><th>NIK</th><th>No BPJS</th><th>Hari/Tgl Berobat</th><th>Jam Estimasi</th><th>Status Check-in</th><th>Kanal</th><th>Poli / dokter</th><th>Pasien / RM</th><th>Aksi</th></tr></thead>
+              <tbody>
+                <tr v-for="(r, i) in rows" :key="r.id" :class="{ sel: i === 0 }">
+                  <td data-label="Kode" class="mono bold">{{ r.kode }}</td>
+                  <td data-label="NIK">{{ patient(r.patientId)?.nik || '-' }}</td>
+                  <td data-label="No BPJS">{{ patient(r.patientId)?.noKartu || '-' }}</td>
+                  <td data-label="Tanggal">{{ fmtTgl(r.tanggal) }}</td>
+                  <td data-label="Jam">{{ r.jam }}</td>
+                  <td data-label="Status"><StatusBadge :value="statusOf(r)" /></td>
+                  <td data-label="Kanal"><StatusBadge :value="r.kanal" /></td>
+                  <td data-label="Poli / dokter">{{ poli(r.poliId)?.nama }}<div class="muted small">{{ doctor(r.doctorId)?.nama }}</div></td>
+                  <td data-label="Pasien">{{ patient(r.patientId)?.nama }}<div class="muted small">{{ patient(r.patientId)?.rm }}</div></td>
+                  <td data-label="Aksi">
+                    <div v-if="r.status === 'booked'" class="row" style="flex-wrap: wrap">
+                      <button class="btn btn-sm btn-primary" :disabled="r.tanggal !== todayStr()" :title="r.tanggal !== todayStr() ? 'Check-in hanya pada hari H' : ''" @click="checkIn(r)">Check-in Manual Pasien</button>
+                      <button class="btn btn-sm" @click="openRs(r)">Reschedule/Ubah Jadwal</button>
+                      <button class="btn btn-sm btn-danger" @click="askBatal(r)">Batalkan Booking</button>
+                    </div>
+                  </td>
+                </tr>
+                <tr v-if="!rows.length"><td colspan="10" class="empty">Tidak ada reservasi.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="muted" style="font-size: 12px">{{ rows.length }} reservasi ditampilkan · Status Booked berubah menjadi Check-in saat check-in manual dilakukan. Nomor antrean poli aktif diterbitkan tanpa mengambil kuota kedua kali.</p>
+        </div>
       </div>
-      <div class="table-wrap">
-        <table class="tbl rtable">
-          <thead><tr><th>Kode booking</th><th>Pasien</th><th>Poli</th><th>Dokter</th><th>Tanggal</th><th>Kanal</th><th>Status</th><th /></tr></thead>
-          <tbody>
-            <tr v-for="r in rows" :key="r.id">
-              <td data-label="Kode" class="mono bold">{{ r.kode }}</td>
-              <td data-label="Pasien">{{ patient(r.patientId)?.nama }}<div class="muted small">{{ patient(r.patientId)?.rm }}</div></td>
-              <td data-label="Poli">{{ poli(r.poliId)?.nama }}</td>
-              <td data-label="Dokter">{{ doctor(r.doctorId)?.nama }}</td>
-              <td data-label="Tanggal">{{ fmtTgl(r.tanggal) }}<div class="muted small">{{ r.jam }}</div></td>
-              <td data-label="Kanal"><StatusBadge :value="r.kanal" /></td>
-              <td data-label="Status"><StatusBadge :value="statusOf(r)" /></td>
-              <td data-label="">
-                <div v-if="r.status === 'booked'" class="row" style="justify-content: flex-end; flex-wrap: nowrap">
-                  <button class="btn btn-sm btn-primary" :disabled="r.tanggal !== todayStr()" :title="r.tanggal !== todayStr() ? 'Check-in hanya pada hari H' : ''" @click="checkIn(r)">Check-in</button>
-                  <button class="btn btn-sm" @click="openRs(r)">Jadwal ulang</button>
-                  <button class="btn btn-sm btn-danger" @click="askBatal(r)">Batalkan</button>
-                </div>
-              </td>
-            </tr>
-            <tr v-if="!rows.length"><td colspan="8" class="empty">Tidak ada reservasi.</td></tr>
-          </tbody>
-        </table>
+
+      <div class="kl-col">
+        <div class="panel">
+          <h2>Aturan Kuota JKN Mobile / Non-Mobile / Umum</h2>
+          <div class="guide">Kuota dibagi menjadi tiga kanal: JKN Mobile, JKN Non-Mobile, dan Umum. Satu pasien / poli / tanggal hanya dapat memiliki satu reservasi aktif.</div>
+          <p>JKN Mobile untuk booking aplikasi Mobile JKN. JKN Non-Mobile untuk pasien BPJS dari Loket/APM. Non-JKN/Umum untuk pasien non-BPJS.</p>
+          <p>Jadwal penuh tidak dapat dipilih. Jadwal ulang memindahkan alokasi kuota ke slot baru; pembatalan melepaskan kuota agar tersedia kembali.</p>
+        </div>
       </div>
     </div>
 
@@ -118,7 +148,7 @@ const doBatal = () => { toast.attempt(() => cancelReservation(b.value.id), `Rese
           <select id="rf-dr" v-model="f.doctorId" class="select" :disabled="!f.poliId"><option value="">{{ f.poliId ? (dokters.length ? 'Pilih dokter' : 'Tidak ada dokter berpraktik') : 'Pilih poli dahulu' }}</option><option v-for="d in dokters" :key="d.id" :value="d.id" :disabled="d.sesi.sisa <= 0">{{ d.nama }} · sisa {{ d.sesi.sisa }}/{{ d.sesi.kuota }}</option></select>
           <span v-if="sesi" class="hint">Jam praktik {{ sesi.mulai }}–{{ sesi.selesai }} · sisa kuota {{ sesi.sisa }}/{{ sesi.kuota }}</span></div>
       </div>
-      <template #footer><button class="btn" @click="formOpen = false">Tutup</button><button class="btn btn-primary" @click="simpan">Simpan reservasi</button></template>
+      <template #footer><button class="btn" @click="formOpen = false">Tutup</button><button class="btn btn-primary" @click="simpan">Tambah</button></template>
     </AppModal>
 
     <AppModal v-model="rsOpen" title="Jadwal ulang reservasi">

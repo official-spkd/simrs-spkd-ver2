@@ -141,13 +141,13 @@ const sepBisaKirim = computed(() => doneVisit.value?.sep && doneVisit.value.sep.
 
 <template>
   <div>
-    <PageHead code="FO-05" role="Front Office" title="Kunjungan Baru" subtitle="Daftarkan kunjungan rawat jalan dalam 4 langkah.">
+    <PageHead code="FO-05" role="Front Office" title="Form Kunjungan" subtitle="Registrasi rawat jalan · Tinjau data sebelum konfirmasi · Booking otomatis & sinkronisasi kuota">
       <template #actions><NuxtLink to="/fo" class="btn">Kembali ke worklist</NuxtLink></template>
     </PageHead>
 
-    <div v-if="!pt" class="card">
+    <div v-if="!pt" class="panel">
       <h2>Pilih pasien</h2>
-      <p class="muted" style="margin-bottom: 12px">Cari pasien terlebih dahulu, atau daftarkan pasien baru.</p>
+      <p class="muted">Cari pasien terlebih dahulu, atau daftarkan pasien baru.</p>
       <div class="row"><button class="btn btn-primary" @click="searchOpen = true"><AppIcon name="search" /> Cari pasien</button><NuxtLink to="/pasien/baru" class="btn">+ Pasien Baru</NuxtLink></div>
       <PatientSearchModal v-model="searchOpen" />
     </div>
@@ -156,15 +156,15 @@ const sepBisaKirim = computed(() => doneVisit.value?.sep && doneVisit.value.sep.
       <PatientBanner :patient="pt" />
 
       <!-- hasil pendaftaran -->
-      <div v-if="doneVisit" class="card" style="text-align: center">
+      <div v-if="doneVisit" class="panel kb-done">
         <div class="muted">Kunjungan berhasil didaftarkan · {{ doneVisit.noKunjungan }}</div>
         <div class="bignum">{{ doneVisit.antreanPoli.nomor }}</div>
-        <div style="margin-bottom: 12px">{{ poli(doneVisit.poliId)?.nama }} · {{ doctor(doneVisit.doctorId)?.nama }} · {{ poli(doneVisit.poliId)?.ruang }}</div>
-        <div class="row" style="justify-content: center; margin-bottom: 14px">
+        <div>{{ poli(doneVisit.poliId)?.nama }} · {{ doctor(doneVisit.doctorId)?.nama }} · {{ poli(doneVisit.poliId)?.ruang }}</div>
+        <div class="row" style="justify-content: center">
           <StatusBadge :value="doneVisit.status" /><StatusBadge :value="doneVisit.antreanPoli.status" /><StatusBadge :value="doneVisit.penjamin" />
           <template v-if="doneVisit.sep"><span class="muted small">SEP</span><StatusBadge :value="doneVisit.sep.status" /><span v-if="doneVisit.sep.noSep" class="mono small">{{ doneVisit.sep.noSep }}</span></template>
         </div>
-        <p v-if="doneVisit.sep && doneVisit.sep.status === 'menunggu'" class="hint" style="margin-bottom: 12px">SEP sedang diproses di latar belakang. Poli tidak diblokir oleh SEP yang masih menunggu.</p>
+        <p v-if="doneVisit.sep && doneVisit.sep.status === 'menunggu'" class="guide">SEP sedang diproses di latar belakang. Poli tidak diblokir oleh SEP yang masih menunggu.</p>
         <div class="row" style="justify-content: center">
           <button class="btn" @click="ticketOpen = true"><AppIcon name="print" /> Cetak tiket</button>
           <template v-if="doneVisit.sep">
@@ -175,122 +175,197 @@ const sepBisaKirim = computed(() => doneVisit.value?.sep && doneVisit.value.sep.
         </div>
       </div>
 
-      <div v-else class="card">
-        <ul class="steps" style="padding: 0; margin: 0 0 20px">
-          <li v-for="(s, i) in STEPS" :key="s" :class="{ on: step === i + 1, done: step > i + 1 }"><b>{{ step > i + 1 ? '✓' : i + 1 }}</b> {{ s }}</li>
-        </ul>
-
-        <!-- 1. penjamin -->
-        <div v-show="step === 1" class="stack" style="gap: 14px">
-          <div class="field">
-            <span class="lbl">Penjamin kunjungan</span>
-            <div class="seg" role="group" aria-label="Penjamin"><button v-for="p in ['Umum', 'BPJS', 'Asuransi']" :key="p" type="button" :class="{ on: f.penjamin === p }" @click="f.penjamin = p; kep = null">{{ p }}</button></div>
-          </div>
-          <div v-if="f.penjamin === 'BPJS'" class="card" style="background: #f7fafb">
-            <h3 style="margin-bottom: 12px">Panel penjamin BPJS &amp; SEP</h3>
-            <div class="form-grid">
-              <div class="field full">
-                <label class="req" for="w-kartu">No. kartu BPJS / NIK</label>
-                <div class="row" style="flex-wrap: nowrap"><input id="w-kartu" v-model="f.noKartu" class="input mono" maxlength="13" inputmode="numeric" placeholder="13 digit" /><button type="button" class="btn" @click="cek">Cek kepesertaan</button></div>
-              </div>
-              <div v-if="kep" class="full alert" :class="kep.aktif ? '' : 'err'">
-                <span><b>{{ kep.aktif ? 'Peserta aktif' : 'Tidak aktif' }}</b> · {{ kep.nama }} · {{ kep.kelas }} · {{ kep.noKartu }}</span>
-              </div>
-              <div class="field"><label for="w-rujuk">No. rujukan (FKTP)</label><input id="w-rujuk" v-model="f.noRujukan" class="input mono" placeholder="Ketik manual" /></div>
-              <div class="field"><label for="w-kontrol">No. surat kontrol</label><input id="w-kontrol" v-model="f.noKontrol" class="input mono" placeholder="Bila kunjungan kontrol" /></div>
-              <div class="field"><label for="w-jenis">Jenis dokumen</label><select id="w-jenis" v-model="jenisDok" class="select"><option>Surat rujukan FKTP</option><option>Surat kontrol</option><option>Dokumen lain</option></select></div>
-              <div class="field"><label for="w-file1">Lampirkan dokumen administratif</label><input id="w-file1" type="file" multiple accept=".pdf,.jpg,.jpeg,.png" class="input" @change="addFiles" /></div>
-              <div class="full row"><span class="muted small">Status SEP saat didaftarkan:</span><StatusBadge value="menunggu" /><span class="hint" style="margin: 0">SEP dibuat pending lalu dikirim worker; poli tidak diblokir.</span></div>
-            </div>
-          </div>
-          <div v-if="f.penjamin === 'Asuransi'" class="card" style="background: #f7fafb">
-            <h3 style="margin-bottom: 12px">Panel penjamin asuransi</h3>
-            <div class="form-grid">
-              <div class="field"><label class="req" for="w-asr">Nama asuransi</label><input id="w-asr" v-model="f.asuransiNama" class="input" /></div>
-              <div class="field"><label class="req" for="w-pol">No. polis</label><input id="w-pol" v-model="f.noPolis" class="input" /></div>
-              <div class="field"><label for="w-plafon">Plafon (Rp)</label><input id="w-plafon" v-model.number="f.plafon" type="number" min="0" class="input" /></div>
-            </div>
-          </div>
-          <p v-if="f.penjamin === 'Umum'" class="muted">Pasien umum membayar langsung di kasir.</p>
+      <template v-else>
+        <div class="tabs" role="tablist" aria-label="Langkah pendaftaran">
+          <button v-for="(s, i) in STEPS" :key="s" type="button" role="tab" :class="{ on: step === i + 1 }" :aria-selected="step === i + 1" :disabled="step <= i + 1 && step !== i + 1" @click="step > i + 1 && (err = '', step = i + 1)">{{ step > i + 1 ? '✓ ' : '' }}{{ i + 1 }} {{ i === 3 ? 'Ringkasan & booking' : s }}</button>
         </div>
 
-        <!-- 2. poli & dokter -->
-        <div v-show="step === 2" class="stack" style="gap: 14px">
-          <div>
-            <span class="lbl">Poli aktif</span>
-            <div class="grid g4" style="margin-top: 8px">
-              <button v-for="p in polis" :key="p.id" type="button" class="tile" :class="{ on: f.poliId === p.id }" style="min-height: 76px; font-size: 16px" :style="f.poliId === p.id ? 'border-color: var(--teal); background: var(--teal-l)' : ''" @click="pilihPoli(p.id)">{{ p.nama }}<small>{{ p.ruang }}</small></button>
-            </div>
-            <p v-if="!polis.length" class="muted" style="margin-top: 8px">Belum ada poli aktif. Aktifkan poli di menu Master poli &amp; dokter.</p>
-          </div>
-          <div v-if="f.poliId">
-            <span class="lbl">Dokter</span>
-            <div class="grid g3" style="margin-top: 8px">
-              <button v-for="d in dokters" :key="d.id" type="button" class="tile" :disabled="penuh(d)" :class="{ off: penuh(d) }" style="min-height: 96px; font-size: 15px" :style="f.doctorId === d.id ? 'border-color: var(--teal); background: var(--teal-l)' : ''" @click="!penuh(d) && (f.doctorId = d.id)">
-                {{ d.nama }}
-                <small v-if="d.sesi">{{ d.sesi.mulai }}–{{ d.sesi.selesai }} · sisa kuota {{ d.sesi.sisa }}/{{ d.sesi.kuota }}</small>
-                <small v-else>Tidak ada jadwal hari ini</small>
-                <span v-if="d.sesi?.cuti" class="badge b-warn" style="align-self: flex-start">Cuti{{ d.sesi.cuti.penggantiId ? ' (ada pengganti)' : '' }}</span>
-                <span v-else-if="penuh(d)" class="badge b-err" style="align-self: flex-start">Kuota penuh</span>
-              </button>
-            </div>
-            <p v-if="!dokters.length" class="muted" style="margin-top: 8px">Belum ada dokter di poli ini. Tambahkan dokter di menu Master poli &amp; dokter, tab Dokter.</p>
-          </div>
-          <div v-if="sudahAda" class="alert warn">Pasien sudah punya kunjungan aktif di poli ini hari ini ({{ sudahAda.antreanPoli.nomor }}).</div>
-        </div>
+        <div class="kb-cols">
+          <div class="kb-main">
+            <!-- 1. penjamin -->
+            <div v-show="step === 1" class="kb-main">
+              <div class="panel">
+                <h2>1 · Penjamin</h2>
+                <div class="tabs" role="group" aria-label="Penjamin" style="margin: 0"><button v-for="p in ['Umum', 'BPJS', 'Asuransi']" :key="p" type="button" :class="{ on: f.penjamin === p }" @click="f.penjamin = p; kep = null">{{ p }}</button></div>
+                <div class="row"><span class="badge b-teal">{{ f.penjamin }} · dipilih</span></div>
+                <p v-if="f.penjamin === 'Umum'" class="muted">Pasien membayar sesuai tarif Umum. BPJS / Asuransi diproses melalui panel penjamin.</p>
+                <p v-if="f.penjamin === 'BPJS'" class="muted">Panel Penjamin &amp; SEP: periksa kepesertaan dan lengkapi rujukan di bawah. SEP dibuat pending lalu dikirim worker.</p>
+              </div>
 
-        <!-- 3. keterangan -->
-        <div v-show="step === 3" class="form-grid">
-          <div class="field">
-            <span class="lbl">Jenis kunjungan</span>
-            <div class="seg" role="group" aria-label="Jenis kunjungan"><button type="button" :class="{ on: f.tipe === 'baru' }" @click="f.tipe = 'baru'">Baru</button><button type="button" :class="{ on: f.tipe === 'kontrol' }" @click="f.tipe = 'kontrol'">Kontrol</button></div>
-          </div>
-          <div class="field"><label class="req" for="w-pj">Penanggung jawab</label><input id="w-pj" v-model="f.pj" class="input" /></div>
-          <div class="field full"><label class="req" for="w-kel">Keluhan singkat</label><textarea id="w-kel" v-model="f.keluhan" class="textarea" placeholder="Contoh: batuk 3 hari" /></div>
-          <div class="field full">
-            <span class="lbl">Dokumen administratif ({{ f.tipe === 'kontrol' ? 'surat kontrol' : 'surat rujukan FKTP' }})</span>
+              <!-- FO-06 Panel Penjamin & SEP -->
+              <template v-if="f.penjamin === 'BPJS'">
+                <div class="panel">
+                  <h2>Kepesertaan BPJS</h2>
+                  <div class="form-grid">
+                    <div class="field full">
+                      <label class="req" for="w-kartu">No. kartu BPJS · ketik 13 digit</label>
+                      <input id="w-kartu" v-model="f.noKartu" class="input mono" maxlength="13" inputmode="numeric" placeholder="13 digit" />
+                    </div>
+                  </div>
+                  <div class="row"><button type="button" class="btn btn-primary" @click="cek">Cek kepesertaan</button></div>
+                  <div v-if="kep" class="table-wrap">
+                    <table class="tbl">
+                      <thead><tr><th>Hasil simulasi</th><th>Nilai</th></tr></thead>
+                      <tbody>
+                        <tr class="hl"><td>Peserta</td><td class="kb-teal">{{ kep.nama }} · kartu {{ kep.noKartu }}</td></tr>
+                        <tr><td>Status / hak kelas</td><td :class="kep.aktif ? 'kb-teal' : 'kb-err'">{{ kep.aktif ? 'Aktif' : 'Tidak aktif' }} · {{ kep.kelas }}</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div v-if="kep && !kep.aktif" class="guide err">Kepesertaan tidak aktif. Ganti penjamin atau periksa nomor kartu.</div>
+                </div>
+
+                <div class="panel">
+                  <h2>Rujukan &amp; dokumen administratif</h2>
+                  <div class="form-grid">
+                    <div class="field"><label for="w-rujuk">Nomor rujukan · manual</label><input id="w-rujuk" v-model="f.noRujukan" class="input mono" placeholder="Ketik manual" /></div>
+                    <div class="field"><label for="w-kontrol">Nomor kontrol · bila tersedia</label><input id="w-kontrol" v-model="f.noKontrol" class="input mono" placeholder="Bila kunjungan kontrol" /></div>
+                    <div class="field"><label for="w-jenis">Jenis dokumen</label><select id="w-jenis" v-model="jenisDok" class="select"><option>Surat rujukan FKTP</option><option>Surat kontrol</option><option>Dokumen lain</option></select></div>
+                    <div class="field"><label for="w-file1">Lampiran rujukan / kontrol</label><input id="w-file1" type="file" multiple accept=".pdf,.jpg,.jpeg,.png" class="input" @change="addFiles" /></div>
+                  </div>
+                  <div class="guide">SEP menunggu tidak menghalangi pelayanan poli. Registrasi tersimpan lokal; worker mengirim permintaan SEP dari antrean.</div>
+                </div>
+
+                <div class="panel">
+                  <h2>Status pengiriman SEP</h2>
+                  <div class="row"><span class="muted small">Status SEP saat didaftarkan:</span><StatusBadge value="menunggu" /></div>
+                  <div class="table-wrap">
+                    <table class="tbl">
+                      <thead><tr><th>Status SEP</th><th>Arti</th></tr></thead>
+                      <tbody>
+                        <tr class="hl"><td>Menunggu</td><td class="kb-teal">Menanti worker</td></tr>
+                        <tr><td>Terbit</td><td class="kb-teal">Siap cetak</td></tr>
+                        <tr><td>Ditolak</td><td class="kb-teal">Periksa kelayakan</td></tr>
+                        <tr><td>Gagal kirim</td><td class="kb-teal">Kirim ulang</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </template>
+
+              <div v-if="f.penjamin === 'Asuransi'" class="panel">
+                <h2>Asuransi · panel penjamin</h2>
+                <div class="form-grid">
+                  <div class="field"><label class="req" for="w-asr">Nama asuransi</label><input id="w-asr" v-model="f.asuransiNama" class="input" /></div>
+                  <div class="field"><label class="req" for="w-pol">No. polis</label><input id="w-pol" v-model="f.noPolis" class="input" /></div>
+                  <div class="field"><label for="w-plafon">Plafon indikatif (Rp)</label><input id="w-plafon" v-model.number="f.plafon" type="number" min="0" class="input" /></div>
+                </div>
+                <p class="muted">Kategori Asuransi bersifat umum. Plafon dan selisih dikonfirmasi manual oleh Kasir.</p>
+              </div>
+            </div>
+
+            <!-- 2. poli & dokter -->
+            <div v-show="step === 2" class="panel">
+              <h2>2 · Poli &amp; Dokter</h2>
+              <div class="form-grid">
+                <div class="field"><label for="w-tgl">Tanggal pelayanan</label><input id="w-tgl" class="input" :value="fmtTglPanjang()" readonly /></div>
+                <div class="field">
+                  <label class="req" for="w-poli">Poli aktif hari ini</label>
+                  <select id="w-poli" class="select" :value="f.poliId" @change="pilihPoli(($event.target as HTMLSelectElement).value)">
+                    <option value="">Pilih poli</option>
+                    <option v-for="p in polis" :key="p.id" :value="p.id">{{ p.nama }}{{ p.ruang ? ' · ' + p.ruang : '' }}</option>
+                  </select>
+                </div>
+              </div>
+              <p v-if="!polis.length" class="muted">Belum ada poli aktif. Aktifkan poli di menu Master poli &amp; dokter.</p>
+              <div v-if="f.poliId" class="table-wrap">
+                <table class="tbl">
+                  <thead><tr><th>Dokter</th><th>Jam praktik</th><th>Terisi / total</th><th>Pilihan</th></tr></thead>
+                  <tbody>
+                    <tr v-for="d in dokters" :key="d.id" :class="{ hl: f.doctorId === d.id }">
+                      <td>{{ d.nama }}</td>
+                      <td>{{ d.sesi ? `${d.sesi.mulai}–${d.sesi.selesai}` : 'Tidak ada jadwal hari ini' }}</td>
+                      <td>{{ d.sesi ? `${d.sesi.kuota - d.sesi.sisa} / ${d.sesi.kuota} · sisa ${d.sesi.sisa}` : '-' }}</td>
+                      <td>
+                        <span v-if="f.doctorId === d.id" class="badge b-teal">Dipilih</span>
+                        <button v-else-if="penuh(d)" type="button" class="btn btn-sm" disabled>Penuh</button>
+                        <button v-else type="button" class="btn btn-sm" @click="f.doctorId = d.id">Pilih</button>
+                        <span v-if="d.sesi?.cuti" class="badge b-warn" style="margin-left: 6px">Cuti{{ d.sesi.cuti.penggantiId ? ' (ada pengganti)' : '' }}</span>
+                      </td>
+                    </tr>
+                    <tr v-if="!dokters.length"><td colspan="4" class="empty">Belum ada dokter di poli ini. Tambahkan dokter di menu Master poli &amp; dokter, tab Dokter.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <p class="muted">Kuota tersinkron dari server; dokter tanpa jadwal hari ini tetap dapat dipilih.</p>
+              <div v-if="sudahAda" class="alert warn">Pasien sudah punya kunjungan aktif di poli ini hari ini ({{ sudahAda.antreanPoli.nomor }}).</div>
+            </div>
+
+            <!-- 3. keterangan -->
+            <div v-show="step === 3" class="panel">
+              <h2>3 · Keterangan &amp; persetujuan</h2>
+              <div class="form-grid">
+                <div class="field"><label for="w-tipe">Jenis kunjungan</label><select id="w-tipe" v-model="f.tipe" class="select"><option value="baru">Baru</option><option value="kontrol">Kontrol</option></select></div>
+                <div class="field"><label class="req" for="w-pj">Penanggung jawab</label><input id="w-pj" v-model="f.pj" class="input" /></div>
+                <div class="field full"><label class="req" for="w-kel">Keluhan utama</label><textarea id="w-kel" v-model="f.keluhan" class="textarea" placeholder="Contoh: batuk 3 hari" /></div>
+                <div class="field full">
+                  <span class="lbl">Dokumen rujukan / kontrol ({{ f.tipe === 'kontrol' ? 'surat kontrol' : 'surat rujukan FKTP' }})</span>
+                  <div class="row">
+                    <select v-model="jenisDok" class="select" style="width: auto" aria-label="Jenis dokumen"><option>Surat rujukan FKTP</option><option>Surat kontrol</option><option>Dokumen lain</option></select>
+                    <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png" class="input" style="flex: 1; min-width: 200px" aria-label="Unggah dokumen" @change="addFiles" />
+                  </div>
+                  <ul v-if="f.dokumen.length" style="list-style: none; padding: 0; margin: 8px 0 0">
+                    <li v-for="(d, i) in f.dokumen" :key="i" class="row between" style="padding: 6px 0; border-top: 1px solid var(--line)"><span><span class="badge b-navy">{{ d.jenis }}</span> {{ d.nama }}</span><button type="button" class="btn btn-sm btn-danger" @click="delDok(i)">Hapus</button></li>
+                  </ul>
+                  <span class="hint">Unggah dokumen administratif rujukan FKTP atau kontrol (PDF/JPG/PNG, maks. 10 MB); nama berkas dicatat.</span>
+                </div>
+              </div>
+              <label class="guide"><input v-model="f.persetujuan" type="checkbox" /><span><b>Persetujuan umum wajib</b> · Pasien / penanggung jawab menyetujui pelayanan dan penggunaan data medis (general consent).</span></label>
+            </div>
+
+            <!-- 4. ringkasan -->
+            <div v-show="step === 4" class="panel">
+              <h2>4 · Ringkasan &amp; booking</h2>
+              <dl class="kv">
+                <dt>Pasien</dt><dd>{{ pt.nama }} · {{ pt.rm }}</dd>
+                <dt>Penjamin</dt><dd><StatusBadge :value="f.penjamin" /></dd>
+                <template v-if="f.penjamin === 'BPJS'"><dt>No. kartu</dt><dd class="mono">{{ f.noKartu }}</dd><dt>Rujukan / kontrol</dt><dd class="mono">{{ f.noRujukan || '-' }} / {{ f.noKontrol || '-' }}</dd><dt>Status SEP</dt><dd><StatusBadge value="menunggu" /></dd></template>
+                <template v-if="f.penjamin === 'Asuransi'"><dt>Asuransi</dt><dd>{{ f.asuransiNama }} · {{ f.noPolis }} · plafon {{ fmtRp(f.plafon) }}</dd></template>
+                <dt>Poli</dt><dd>{{ f.poliId ? poli(f.poliId)?.nama : '-' }}</dd>
+                <dt>Dokter</dt><dd>{{ dokterTerpilih?.nama || '-' }}</dd>
+                <dt>Jenis</dt><dd>{{ f.tipe === 'baru' ? 'Baru' : 'Kontrol' }}</dd>
+                <dt>Keluhan</dt><dd>{{ f.keluhan }}</dd>
+                <dt>Penanggung jawab</dt><dd>{{ f.pj }}</dd>
+                <dt>Dokumen</dt><dd>{{ dokumenText }}</dd>
+              </dl>
+              <div v-if="f.penjamin === 'BPJS' && !f.noRujukan && !f.noKontrol" class="guide warn">Belum ada No. rujukan / surat kontrol. SEP tetap dibuat menunggu; lengkapi bila diperlukan.</div>
+            </div>
+
+            <p v-if="err" class="err-text" role="alert">{{ err }}</p>
+
             <div class="row">
-              <select v-model="jenisDok" class="select" style="width: auto" aria-label="Jenis dokumen"><option>Surat rujukan FKTP</option><option>Surat kontrol</option><option>Dokumen lain</option></select>
-              <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png" class="input" style="flex: 1; min-width: 200px" aria-label="Unggah dokumen" @change="addFiles" />
+              <button class="btn" :disabled="step === 1" @click="kembali">Kembali</button>
+              <button v-if="step < 4" class="btn btn-primary" @click="lanjut">Lanjut</button>
+              <template v-else><button class="btn" :disabled="saving" @click="daftar(false)">Daftarkan</button><button class="btn btn-primary" :disabled="saving" @click="daftar(true)"><AppIcon name="print" /> Daftarkan &amp; Cetak</button></template>
             </div>
-            <ul v-if="f.dokumen.length" style="list-style: none; padding: 0; margin: 8px 0 0">
-              <li v-for="(d, i) in f.dokumen" :key="i" class="row between" style="padding: 6px 0; border-top: 1px solid var(--line)"><span><span class="badge b-navy">{{ d.jenis }}</span> {{ d.nama }}</span><button type="button" class="btn btn-sm btn-danger" @click="delDok(i)">Hapus</button></li>
-            </ul>
-            <span class="hint">Nama berkas dicatat sebagai dokumen administratif (PDF/JPG/PNG, maks. 10 MB).</span>
           </div>
-          <label class="check full"><input v-model="f.persetujuan" type="checkbox" /><span>Pasien / penanggung jawab telah menyetujui <b>persetujuan umum (general consent)</b>. <span class="muted">(wajib)</span></span></label>
-        </div>
 
-        <!-- 4. ringkasan -->
-        <div v-show="step === 4" class="grid g2">
-          <dl class="kv">
-            <dt>Pasien</dt><dd>{{ pt.nama }} · {{ pt.rm }}</dd>
-            <dt>Penjamin</dt><dd><StatusBadge :value="f.penjamin" /></dd>
-            <template v-if="f.penjamin === 'BPJS'"><dt>No. kartu</dt><dd class="mono">{{ f.noKartu }}</dd><dt>Rujukan / kontrol</dt><dd class="mono">{{ f.noRujukan || '-' }} / {{ f.noKontrol || '-' }}</dd><dt>Status SEP</dt><dd><StatusBadge value="menunggu" /></dd></template>
-            <template v-if="f.penjamin === 'Asuransi'"><dt>Asuransi</dt><dd>{{ f.asuransiNama }} · {{ f.noPolis }} · plafon {{ fmtRp(f.plafon) }}</dd></template>
-            <dt>Poli</dt><dd>{{ f.poliId ? poli(f.poliId)?.nama : '-' }}</dd>
-            <dt>Dokter</dt><dd>{{ dokterTerpilih?.nama || '-' }}</dd>
-            <dt>Jenis</dt><dd>{{ f.tipe === 'baru' ? 'Baru' : 'Kontrol' }}</dd>
-            <dt>Keluhan</dt><dd>{{ f.keluhan }}</dd>
-            <dt>Penanggung jawab</dt><dd>{{ f.pj }}</dd>
-            <dt>Dokumen</dt><dd>{{ dokumenText }}</dd>
-          </dl>
-          <div class="card" style="text-align: center; background: var(--teal-l)">
-            <div class="muted">Pratinjau nomor antrean</div>
-            <div class="bignum">{{ preview }}</div>
-            <div class="hint">Perkiraan. Nomor final diterbitkan server saat Daftarkan.</div>
+          <!-- sisi kanan: ringkasan + preview tiket -->
+          <div class="kb-side">
+            <div class="panel">
+              <h2>4 · Ringkasan pendaftaran</h2>
+              <p><b>{{ pt.nama }} · {{ pt.rm }}</b></p>
+              <p>{{ f.penjamin }} · {{ f.tipe === 'baru' ? 'Baru' : 'Kontrol' }}</p>
+              <p>{{ f.poliId ? `${poli(f.poliId)?.nama} · ${poli(f.poliId)?.ruang}` : 'Poli belum dipilih' }}</p>
+              <p>{{ dokterTerpilih?.nama || 'Dokter belum dipilih' }}</p>
+              <p>{{ fmtTglPanjang() }}{{ dokterTerpilih?.sesi ? ` · ${dokterTerpilih.sesi.mulai}–${dokterTerpilih.sesi.selesai}` : '' }}</p>
+              <div class="row"><span class="badge" :class="f.persetujuan ? 'b-ok' : 'b-mute'">{{ f.persetujuan ? 'Consent lengkap' : 'Consent belum dicentang' }}</span></div>
+              <div class="guide">Kuota baru dikunci atomik saat Daftarkan. Jika penuh, pilih jadwal lain. Satu kunjungan aktif per pasien / poli / hari.</div>
+              <p v-if="f.penjamin === 'BPJS'" class="muted">Antrol BPJS: registrasi tersimpan di outbox lalu diproses worker.</p>
+              <p v-else class="muted">Antrol BPJS: tidak berlaku untuk {{ f.penjamin }}.</p>
+            </div>
+            <div class="panel kb-tiket">
+              <h2>Preview tiket · 80 mm</h2>
+              <p>SIMRS SPKD · RAWAT JALAN</p>
+              <div class="kb-no">{{ preview }}</div>
+              <p>{{ f.poliId ? `${poli(f.poliId)?.nama} · ${poli(f.poliId)?.ruang}` : '-' }}</p>
+              <p>{{ dokterTerpilih?.nama || '-' }}</p>
+              <p class="muted">{{ fmtTglPanjang() }} · {{ pt.rm }}</p>
+              <p class="muted">Perkiraan. Nomor final dikonfirmasi server setelah registrasi.</p>
+            </div>
           </div>
-          <div v-if="f.penjamin === 'BPJS' && !f.noRujukan && !f.noKontrol" class="alert warn full" style="grid-column: 1 / -1">Belum ada No. rujukan / surat kontrol. SEP tetap dibuat menunggu; lengkapi bila diperlukan.</div>
         </div>
-
-        <p v-if="err" class="err-text" role="alert" style="margin-top: 12px">{{ err }}</p>
-
-        <div class="row between" style="margin-top: 20px">
-          <button class="btn" :disabled="step === 1" @click="kembali">Kembali</button>
-          <div v-if="step < 4"><button class="btn btn-primary" @click="lanjut">Lanjut</button></div>
-          <div v-else class="row"><button class="btn" :disabled="saving" @click="daftar(false)">Daftarkan</button><button class="btn btn-primary" :disabled="saving" @click="daftar(true)"><AppIcon name="print" /> Daftarkan &amp; Cetak</button></div>
-        </div>
-      </div>
+      </template>
     </template>
 
     <AppModal v-model="ticketOpen" title="Tiket antrean (80 mm)">
@@ -332,4 +407,19 @@ const sepBisaKirim = computed(() => doneVisit.value?.sep && doneVisit.value.sep.
   body.print-only .modal { box-shadow: none; max-width: none; max-height: none; }
   body.print-only .modal-h, body.print-only .modal-f { display: none; }
 }
+</style>
+
+<style scoped>
+.kb-cols { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 16px; align-items: start; margin-top: 16px; }
+.kb-main, .kb-side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.kb-done { text-align: center; align-items: center; margin-top: 16px; }
+.kb-teal { color: var(--teal-d); }
+.kb-err { color: var(--err); }
+.kb-tiket { text-align: center; align-items: stretch; }
+.kb-no { font-size: 48px; font-weight: 600; color: var(--navy); line-height: 1.2; }
+.guide input[type='checkbox'] { margin-top: 2px; flex: none; }
+.tabs { margin-bottom: 0; margin-top: 16px; }
+.panel .tabs { margin-top: 0; }
+.tabs button:disabled { cursor: default; opacity: .7; }
+@media (max-width: 1100px) { .kb-cols { grid-template-columns: minmax(0, 1fr); } }
 </style>

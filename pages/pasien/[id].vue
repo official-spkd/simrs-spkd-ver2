@@ -44,7 +44,7 @@ const tab = ref(isKasir.value ? 'penjamin' : 'demografi')
 const TABS = computed(() => {
   const all = [
     { key: 'demografi', label: 'Demografi' }, { key: 'kontak', label: 'Kontak' }, { key: 'penjamin', label: 'Penjamin' }, { key: 'pj', label: 'Penanggung jawab' },
-    { key: 'riwayat', label: 'Riwayat Kunjungan' }, { key: 'dokumen', label: 'Dokumen' },
+    { key: 'riwayat', label: 'Riwayat' }, { key: 'dokumen', label: 'Dokumen' },
   ]
   return isKasir.value ? all.filter((t) => ['penjamin', 'riwayat', 'dokumen'].includes(t.key)) : all
 })
@@ -148,25 +148,26 @@ const printCard = () => {
 
 <template>
   <div v-if="pt">
-    <PageHead code="FO-04" :role="isKasir ? 'Kasir · tampilan ringkas' : 'Detail pasien'" :title="pt.nama" :subtitle="pt.rm">
+    <PageHead code="FO-04" :role="isKasir ? 'Kasir · tampilan ringkas' : 'Detail pasien'"  title="Detail Pasien & Riwayat" :subtitle="`Identitas longitudinal · ${pt.nama} · ${pt.rm}`">
       <template #actions>
-        <button class="btn" @click="cardOpen = true"><AppIcon name="print" /> Cetak kartu pasien</button>
         <template v-if="isFo">
-          <button class="btn" @click="openRsv">+ Reservasi</button>
-          <NuxtLink :to="'/kunjungan/baru?pasien=' + pt.id" class="btn btn-primary">+ Kunjungan</NuxtLink>        </template>
+          <NuxtLink :to="'/kunjungan/baru?pasien=' + pt.id" class="btn btn-primary">+ Kunjungan</NuxtLink>
+        </template>
       </template>
     </PageHead>
 
     <PatientBanner :patient="pt" />
     <div v-if="!isFo" class="alert info" style="margin-bottom: 14px"><span>{{ isKasir ? 'Tampilan ringkas untuk kasir.' : '' }} Data pasien bersifat baca saja; perubahan hanya oleh Front Office.</span></div>
 
-    <div class="card">
-      <AppTabs v-model="tab" :tabs="TABS" />
+    <AppTabs v-model="tab" :tabs="TABS" />
 
-      <template v-if="['demografi', 'kontak', 'penjamin', 'pj'].includes(tab)">
-        <div v-if="isFo" class="row" style="justify-content: flex-end; margin-bottom: 12px">
-          <template v-if="!editing"><button class="btn btn-sm" @click="startEdit">Edit data</button></template>
-          <template v-else><button class="btn btn-sm" :disabled="saving" @click="editing = false">Batal</button><button class="btn btn-sm btn-primary" :disabled="saving" @click="saveEdit">{{ saving ? 'Menyimpan…' : 'Simpan perubahan' }}</button></template>
+    <div class="kl-cols r350" v-if="['demografi', 'kontak', 'penjamin', 'pj'].includes(tab)">
+      <div class="kl-col">
+      <div class="panel">
+        <h2>{{ TABS.find((t) => t.key === tab)?.label }}</h2>
+        <div v-if="isFo" class="row" style="justify-content: flex-end">
+          <template v-if="!editing"><button class="btn" @click="startEdit">Edit data</button></template>
+          <template v-else><button class="btn" :disabled="saving" @click="editing = false">Batal</button><button class="btn btn-primary" :disabled="saving" @click="saveEdit">{{ saving ? 'Menyimpan…' : 'Simpan perubahan' }}</button></template>
         </div>
         <p v-if="err" class="err-text" role="alert" style="margin-bottom: 10px">{{ err }}</p>
         <dl v-if="!editing" class="kv">
@@ -181,9 +182,29 @@ const printCard = () => {
             <input v-else :id="'e-' + x.k" v-model="ef[x.k]" class="input" :class="{ mono: NUMERIC[x.k] }" :type="x.type || 'text'" :inputmode="NUMERIC[x.k]?.mode" :maxlength="NUMERIC[x.k]?.max" />
           </div>
         </div>
-      </template>
+      </div>
+      </div>
+      <div class="kl-col">
+        <div class="panel">
+          <h2>Akses rekam medis</h2>
+          <p v-if="pt.alergi" style="font-size: 14px">Alergi: {{ pt.alergi }}</p>
+          <p style="font-size: 14px">Penjamin: {{ pt.penjamin || '-' }}</p>
+          <div class="row" style="gap: 12px">
+            <button v-if="isFo" class="btn" @click="openRsv">+ Reservasi</button>
+            <button class="btn" @click="cardOpen = true"><AppIcon name="print" /> Cetak kartu pasien</button>
+          </div>
+          <p class="muted" style="font-size: 12px">Front Office dapat edit identitas. Dokter / Perawat dan Kasir hanya membaca data demografi.</p>
+        </div>
+        <div class="panel">
+          <h2>Penjamin</h2>
+          <div class="guide">Penjamin ditetapkan per kunjungan, bukan mengganti seluruh riwayat.</div>
+        </div>
+      </div>
+    </div>
 
-      <p v-if="tab === 'riwayat' && riwayatErr" class="alert err" role="alert" style="margin-bottom: 12px">Gagal memuat riwayat dari server: {{ riwayatErr }}</p>
+    <div v-if="tab === 'riwayat' || tab === 'dokumen'" class="panel">
+      <h2>{{ tab === 'riwayat' ? 'Riwayat kunjungan' : 'Dokumen EMR & pembayaran' }}</h2>
+      <p v-if="tab === 'riwayat' && riwayatErr" class="alert err" role="alert">Gagal memuat riwayat dari server: {{ riwayatErr }}</p>
       <div v-if="tab === 'riwayat'" class="table-wrap">
         <table class="tbl rtable">
           <thead><tr><th>Tanggal</th><th>No. antrean</th><th>Poli</th><th>Dokter</th><th>Jenis</th><th>Penjamin</th><th>Status</th><th>Antrean poli</th></tr></thead>
@@ -249,6 +270,10 @@ const printCard = () => {
   <div v-else class="card"><p>{{ loadErr || 'Pasien tidak ditemukan.' }}</p><NuxtLink to="/pasien" class="btn" style="margin-top: 12px">Kembali ke daftar pasien</NuxtLink></div>
 </template>
 
+<style scoped>
+.kl-cols.r350 { grid-template-columns: minmax(0, 1fr) 350px; }
+@media (max-width: 900px) { .kl-cols.r350 { grid-template-columns: minmax(0, 1fr); } }
+</style>
 <style>
 @media print {
   body.print-only > *:not(.modal-back) { display: none !important; }

@@ -33,39 +33,57 @@ const lanes = computed(() => {
       }
     })
 })
+const semua = computed(() => lanes.value.flatMap((l: any) => l.cols))
+const jml = (k: string) => semua.value.filter((c: any) => c.key === k).reduce((n: number, c: any) => n + c.items.length, 0)
+const lunas = computed(() => semua.value.filter((c: any) => c.key === 'selesai').reduce((n: number, c: any) => n + c.items.filter((v: any) => v.status === 'lunas').length, 0))
+const dokterPoli = (pid: string) => db.doctors.filter((d: any) => d.poliId === pid).map((d: any) => d.nama).join(' · ')
 const jamTick = computed(() => { void tick.value; return fmtJam(new Date().toISOString()) })
 </script>
 
 <template>
   <div>
-    <PageHead code="FO-11" :role="user?.role === 'mgmt' ? 'Management · baca saja' : 'Front Office · baca saja'" title="Monitor Antrean Poli" subtitle="Pantau antrean semua poli. Halaman ini diperbarui otomatis setiap 5 detik.">
-      <template #actions>
-        <span class="chip-ss"><span class="dot" /> Diperbarui {{ jamTick }}</span>
-      </template>
-    </PageHead>
+    <PageHead code="FO-11" :role="user?.role === 'mgmt' ? 'Management · baca saja' : 'Front Office / Admin'" title="Monitor Antrean Poli" subtitle="Gambaran antrean lintas poli · Front Office / Manajemen membaca saja" />
 
-    <div class="filters">
-      <div class="field"><label for="m-poli" class="small">Poli</label>
-        <select id="m-poli" v-model="fPoli" class="select"><option value="">Semua poli</option><option v-for="p in db.polis" :key="p.id" :value="p.id">{{ p.nama }}</option></select></div>
+    <div class="kl-filters">
+      <select id="m-poli" v-model="fPoli" class="select" aria-label="Poli"><option value="">Semua poli</option><option v-for="p in db.polis" :key="p.id" :value="p.id">{{ p.nama }}</option></select>
+      <span class="badge b-navy">{{ fmtTglPanjang(todayStr()) }}</span>
     </div>
 
-    <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr))">
-      <div v-for="l in lanes" :key="l.poli.id" class="card">
-        <div class="row between" style="margin-bottom: 12px">
-          <div><h2 style="margin: 0">{{ l.poli.nama }}</h2><div class="muted small">{{ l.poli.ruang }} · {{ l.total }} pasien</div></div>
-          <span class="badge b-navy">{{ l.poli.kode }}</span>
-        </div>
-        <div v-for="c in l.cols" :key="c.key" style="margin-bottom: 12px">
-          <div class="row between" style="margin-bottom: 4px"><span class="badge" :class="c.cls">{{ c.label }}</span><span class="muted small">{{ c.items.length }}</span></div>
-          <div v-if="!c.items.length" class="muted small" style="padding: 2px 0 2px 4px">Kosong</div>
-          <div v-for="v in c.items" :key="v.id" class="row between" style="padding: 6px 4px; border-top: 1px solid var(--line); flex-wrap: nowrap">
-            <span><b class="mono">{{ v.antreanPoli.nomor }}</b> <span class="muted small">{{ doctor(v.doctorId)?.nama.split(',')[0] }}</span></span>
-            <span class="muted small nowrap">{{ wait(v) }} mnt</span>
-          </div>
+    <div class="row" style="gap: 16px; margin-bottom: 16px">
+      <span class="chip-ss"><span class="dot" /> Auto-refresh 5 detik</span>
+      <span class="badge b-navy">Diperbarui {{ jamTick }}</span>
+      <span class="badge b-navy">Baca saja · tanpa kontrol panggilan</span>
+    </div>
+
+    <div class="grid g4" style="margin-bottom: 16px">
+      <div class="kl-kpi"><small>Menunggu</small><b>{{ jml('menunggu') }}</b></div>
+      <div class="kl-kpi"><small>Sedang dilayani</small><b>{{ jml('dilayani') }}</b></div>
+      <div class="kl-kpi"><small>Selesai poli</small><b>{{ jml('selesai') }}</b><span>{{ jml('selesai') - lunas }} belum lunas · {{ lunas }} lunas</span></div>
+      <div class="kl-kpi"><small>Dilewati / batal</small><b>{{ jml('dilewati') }}</b></div>
+    </div>
+
+    <div class="grid g2">
+      <div v-for="l in lanes" :key="l.poli.id" class="panel">
+        <h2>{{ l.poli.nama }} · {{ l.poli.ruang }}</h2>
+        <p class="muted" style="font-size: 13px">{{ dokterPoli(l.poli.id) || l.poli.kode }} · {{ l.total }} pasien</p>
+        <div class="table-wrap">
+          <table class="tbl">
+            <thead><tr><th>Status antrean</th><th>Nomor / waktu tunggu</th></tr></thead>
+            <tbody>
+              <tr v-for="(c, i) in l.cols" :key="c.key" :class="{ sel: i === 0 }">
+                <td style="vertical-align: top"><span class="badge" :class="c.cls">{{ c.label }}</span> <span class="muted small">{{ c.items.length }}</span></td>
+                <td style="color: var(--teal-d)">
+                  <div v-for="v in c.items" :key="v.id"><b class="mono">{{ v.antreanPoli.nomor }}</b> <span class="muted small">{{ doctor(v.doctorId)?.nama.split(',')[0] }}</span> · {{ wait(v) }} mnt</div>
+                  <span v-if="!c.items.length" class="muted">Tidak ada</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
-      <div v-if="!lanes.length" class="card"><p class="muted">Tidak ada poli yang cocok.</p></div>
+      <div v-if="!lanes.length" class="panel"><p class="muted">Tidak ada poli yang cocok.</p></div>
     </div>
-    <p class="hint">Waktu tunggu = selisih jam daftar sampai dipanggil (untuk yang masih menunggu: sampai sekarang). "Menunggu" mencakup pasien yang vitalnya sudah selesai.</p>
+
+    <div class="guide" style="margin-top: 16px">Menunggu, Dipanggil, Dilayani, Selesai, dan Dilewati adalah status antrean. Status kunjungan dan status SEP / tagihan / sinkronisasi dicatat terpisah. Waktu tunggu = selisih jam daftar sampai dipanggil (untuk yang masih menunggu: sampai sekarang); "Menunggu" mencakup pasien yang vitalnya sudah selesai.</div>
   </div>
 </template>

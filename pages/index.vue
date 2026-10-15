@@ -10,17 +10,10 @@ const menunggu = computed(() => aktif.value.filter((v: any) => v.status === 'ter
 const dilayani = computed(() => aktif.value.filter((v: any) => v.status === 'dilayani'))
 const siapBayar = computed(() => aktif.value.filter((v: any) => v.status === 'selesai'))
 const lunas = computed(() => aktif.value.filter((v: any) => v.status === 'lunas'))
-// antrean loket menunggu hari ini — dari server (/api/v1/display/queues), dimuat ulang tiap 10 detik
-const sisaLoket = ref<number | string>('-')
-const muatLoket = () => displayQueues().then((d) => (sisaLoket.value = d.menunggu), () => (sisaLoket.value = '-'))
-let tLoket: any
-onMounted(() => { if (role.value === 'fo') { muatLoket(); tLoket = setInterval(muatLoket, 10000) } })
-onBeforeUnmount(() => clearInterval(tLoket))
 const pendapatan = computed(() => Object.values(db.bills).flatMap((b: any) => b.payments || []).reduce((s: number, p: any) => s + p.jumlah, 0))
 const gagal = computed(() => db.outbox.filter((o: any) => o.status === 'gagal').length)
 const antri = computed(() => db.outbox.filter((o: any) => o.status === 'antrian').length)
 const links: Record<string, { to: string; label: string }[]> = {
-  fo: [{ to: '/fo', label: 'Worklist pendaftaran' }, { to: '/fo/antrean', label: 'Pemanggilan antrean loket' }, { to: '/pasien/baru', label: '+ Pasien baru' }, { to: '/fo/reservasi', label: 'Reservasi' }],
   kasir: [{ to: '/kasir', label: 'Worklist tagihan' }, { to: '/kasir/shift', label: 'Rekap shift' }],
   mgmt: [{ to: '/manajemen', label: 'Dashboard operasional' }, { to: '/manajemen/kunjungan', label: 'Laporan kunjungan' }, { to: '/manajemen/pembatalan', label: 'Laporan pembatalan' }],
   it: [{ to: '/it/integrasi', label: 'Status integrasi' }, { to: '/it/audit', label: 'Audit trail' }, { to: '/it/perangkat', label: 'Perangkat' }],
@@ -31,17 +24,12 @@ const sisaTagihan = computed(() => siapBayar.value.reduce((s: number, v: any) =>
 
 <template>
   <BerandaDokter v-if="user && role === 'dokter'" />
+  <BerandaFo v-else-if="user && role === 'fo'" />
   <div v-else-if="user">
     <PageHead code="GL-02" :role="ROLE_LABEL[role]" :title="`Selamat datang, ${user.nama}`" :subtitle="`Ringkasan hari ini · ${fmtTglPanjang()}`" />
 
     <div class="grid g4">
-      <template v-if="role === 'fo'">
-        <div class="kpi"><small>Kunjungan hari ini</small><b>{{ aktif.length }}</b><span>{{ hari.length - aktif.length }} dibatalkan</span></div>
-        <div class="kpi"><small>Antrean loket menunggu</small><b>{{ sisaLoket }}</b><span>Hari ini, dari server</span></div>
-        <div class="kpi"><small>Menunggu poli</small><b>{{ menunggu.length }}</b><span>Terdaftar, belum dilayani</span></div>
-        <div class="kpi"><small>Reservasi check-in</small><b>{{ db.reservations.filter((r: any) => r.tanggal === t && r.status === 'booked').length }}</b><span>Pasien belum hadir</span></div>
-      </template>
-      <template v-else-if="role === 'kasir'">
+      <template v-if="role === 'kasir'">
         <div class="kpi"><small>Tagihan belum bayar</small><b>{{ siapBayar.length }}</b><span>Siap bayar</span></div>
         <div class="kpi"><small>Menunggu klinis</small><b>{{ menunggu.length + dilayani.length }}</b><span>Masih di poli</span></div>
         <div class="kpi"><small>Lunas hari ini</small><b>{{ lunas.length }}</b><span>Kunjungan</span></div>
