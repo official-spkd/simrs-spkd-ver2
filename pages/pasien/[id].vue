@@ -119,7 +119,7 @@ const show = (x: F) => {
 
 // riwayat & dokumen — hanya field yang ada di respons server
 const visits = computed(() => riwayat.value.slice().sort((a: any, b: any) => (a.tanggal + a.dibuat < b.tanggal + b.dibuat ? 1 : -1)))
-const docs = computed(() => visits.value.filter((v: any) => v.dokumen).map((v: any) => ({ jenis: v.dokumen, tgl: v.tanggal, poli: v.poliNama, antrean: v.nomor })))
+const docs = computed(() => visits.value.filter((v: any) => v.dokumen).map((v: any) => ({ jenis: v.dokumen, tgl: v.tanggal, poli: v.poliNama, antrean: v.nomorPoli })))
 
 // reservasi
 const rsvOpen = ref(false)
@@ -190,7 +190,7 @@ const printCard = () => {
           <tbody>
             <tr v-for="v in visits" :key="v.id">
               <td data-label="Tanggal">{{ fmtTgl(v.tanggal) }}</td>
-              <td data-label="No. antrean" class="mono">{{ v.nomor }}</td>
+              <td data-label="No. antrean" class="mono">{{ v.nomorPoli }}</td>
               <td data-label="Poli">{{ v.poliNama }}</td>
               <td data-label="Dokter">{{ v.dokterNama }}</td>
               <td data-label="Jenis">{{ v.tipe }}</td>

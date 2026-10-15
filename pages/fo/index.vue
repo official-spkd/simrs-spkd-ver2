@@ -9,7 +9,9 @@ const searchQ = ref('')
 const openSearch = () => { searchQ.value = q.value.trim(); searchOpen.value = true }
 
 // antrean loket — langsung dari server (/api/v1/counters); loket terpilih sama dengan di FO-07
-const { lokets, loketId, loket, aktif, tertinggal, menunggu, poll, next, skip, complete } = useCounters()
+const { lokets, loketId, loket, aktif, tertinggal, menunggu, log, poll, next, skip, complete } = useCounters()
+// tiket loket hari ini per kunjungan (tiket dibuat server saat kunjungan didaftarkan, terhubung lewat visit_id)
+const tiketOf = computed(() => new Map([...menunggu.value, ...log.value].map((t: any) => [t.visitId, t])))
 const loketErr = poll()
 const loketBusy = ref(false)
 const runLoket = async (fn: () => Promise<any>, okMsg: (t: any) => string) => {
@@ -157,7 +159,7 @@ const detailPt = computed(() => (detail.value?.patientId ? patient(detail.value.
             </thead>
             <tbody>
               <tr v-for="v in rows" :key="v.id" class="click" @click="openDetail(v)">
-                <td data-label="Antrean" class="mono bold">{{ v.nomor }}</td>
+                <td data-label="Antrean"><b class="mono">{{ tiketOf.get(v.id)?.nomor || '-' }}</b><div class="muted small mono">poli {{ v.nomorPoli }}</div></td>
                 <td data-label="RM" class="mono">{{ v.rm }}</td>
                 <td data-label="Nama" class="bold">{{ v.nama }}</td>
                 <td data-label="Poli">{{ v.poliNama }}<span v-if="!v.diMaster" class="badge b-warn" style="margin-left: 6px">di luar master</span><div class="muted small">{{ v.dokterNama }}</div></td>
@@ -192,7 +194,8 @@ const detailPt = computed(() => (detail.value?.patientId ? patient(detail.value.
         <dl class="kv">
           <dt>Pasien</dt><dd>{{ detail.nama }} · {{ detail.rm }}</dd>
           <dt>Tanggal</dt><dd>{{ fmtTgl(detail.tanggal) }}</dd>
-          <dt>Antrean poli</dt><dd>{{ detail.nomor }} <StatusBadge :value="detail.antre" /></dd>
+          <template v-if="tiketOf.get(detail.id)"><dt>Antrean loket</dt><dd><span class="mono">{{ tiketOf.get(detail.id).nomor }}</span> <StatusBadge :value="tiketOf.get(detail.id).status" /></dd></template>
+          <dt>Antrean poli</dt><dd><span class="mono">{{ detail.nomorPoli }}</span> <StatusBadge :value="detail.antre" /></dd>
           <dt>Status kunjungan</dt><dd><StatusBadge :value="detail.status" /></dd>
           <dt>Poli / dokter</dt><dd>{{ detail.poliNama }} · {{ detail.dokterNama }}</dd>
           <dt>Jenis</dt><dd>{{ detail.tipe }}</dd>

@@ -31,6 +31,8 @@ export function useVisits() {
       id: r.id,
       tanggal: (r.visit_date || '').slice(0, 10),
       nomor: r.queue_number,
+      // nomor antrean poli dihitung per poli (tiap poli mulai 001) → tampilkan dengan kode poli
+      nomorPoli: r.poli?.prefix_code ? `${r.poli.prefix_code}-${r.queue_number}` : r.queue_number,
       patientId: r.patient?.id || '',
       rm: rmOf(r.patient?.medical_record_number),
       nama: r.patient?.full_name || '(pasien tidak ditemukan)',
