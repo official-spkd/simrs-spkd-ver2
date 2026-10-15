@@ -52,7 +52,8 @@ export const rmOf = (mrn?: string) => mrn || '-'
 
 export const isServerId = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
 
-const fromApi = (p: any, old: any = {}) => ({
+/** Pasien server (bentuk /api/v1/patients, juga patient di /api/v1/queues) → bentuk lokal. */
+export const pasienFromApi = (p: any, old: any = {}) => ({
   id: p.id,
   rm: rmOf(p.medical_record_number),
   nik: p.nik,
@@ -112,7 +113,7 @@ export function usePatients() {
 
   const cache = (p: any) => {
     const i = db.patients.findIndex((x: any) => x.id === p.id)
-    const local = fromApi(p, i >= 0 ? db.patients[i] : {})
+    const local = pasienFromApi(p, i >= 0 ? db.patients[i] : {})
     if (i >= 0) db.patients[i] = local
     else db.patients.push(local)
     return local
