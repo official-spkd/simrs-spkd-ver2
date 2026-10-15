@@ -56,7 +56,7 @@ export function useVisits() {
   const cache = (r: any) => {
     cachePatient(r)
     const pl = db.polis.find((p: any) => norm(p.nama) === norm(r.poli))
-    const dr = db.doctors.find((d: any) => norm(d.nama) === norm(r.doctor))
+    const dr = (r.doctor_id && db.doctors.find((d: any) => d.serverId === r.doctor_id)) || db.doctors.find((d: any) => norm(d.nama) === norm(r.doctor))
     if (!pl || !dr) return null
     const old = db.visits.find((v: any) => v.id === r.id)
     const penjamin = PENJAMIN[r.penjamin] || 'Umum'
@@ -116,8 +116,8 @@ export function useVisits() {
     const body: Record<string, any> = {
       patient_id: f.patientId,
       visit_date: f.tanggal || todayStr(),
-      poli: poli(f.poliId)?.nama,
-      doctor: doctor(f.doctorId)?.nama,
+      // poli diambil server dari dokter
+      doctor_id: doctor(f.doctorId)?.serverId,
       penjamin: PENJAMIN_API[f.penjamin] || 'umum',
       visit_type: f.tipe || 'baru',
       chief_complaint: f.keluhan,
@@ -141,6 +141,7 @@ export function useVisits() {
 
   const create = async (f: any) => {
     if (!isServerId(f.patientId)) throw new Error('Pasien ini data contoh lokal dan belum ada di server. Daftarkan pasien lewat menu Pasien Baru.')
+    if (!doctor(f.doctorId)?.serverId) throw new Error('Dokter ini data contoh lokal dan belum ada di server. Tambahkan dokter lewat Master Poli & Dokter.')
     const v = cache(await api('/api/v1/visits', { method: 'POST', body: toApi(f) }))
     if (!v) throw new Error('Kunjungan tersimpan di server, tetapi nama poli/dokter tidak cocok dengan master lokal')
     if (f.dokumen?.length) v.dokumen = f.dokumen.slice()

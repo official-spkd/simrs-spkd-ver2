@@ -1,6 +1,6 @@
 <script setup lang="ts">
+// VWR-01 Layar antrean loket — data publik dari server (/api/v1/display/queues), hanya panggilan hari ini.
 definePageMeta({ layout: 'tv' })
-const { current, next, menunggu } = useVwrLoket()
 const { soundOn, supported, speak, enable } = useVwrSound()
 const { jam, detik, tanggal } = useKioskClock()
 
@@ -12,21 +12,17 @@ const kedip = () => {
   setTimeout(() => (flash.value = true), 30)
   ft = setTimeout(() => (flash.value = false), 3400)
 }
-const { latest } = useVwrCalls(['loket'], (e, live) => {
-  if (live) {
-    kedip()
-    speak(teksPanggil(e))
-  }
+// Panggilan baru / panggil ulang (last_called_at berubah) → kedip + suara. Muatan pertama hanya kedip.
+const { lokets, current, menunggu, err } = useVwrLoket((e, live) => {
+  kedip()
+  if (live) speak(teksPanggil(e))
 })
-// Replay saat halaman baru dimuat: tampilkan kedip; suara diputar begitu "Aktifkan suara" ditekan.
-onMounted(() => kedip())
-const aktifkan = () => enable(teksPanggil(latest()))
+const aktifkan = () => enable(teksPanggil(current.value))
 onBeforeUnmount(() => clearTimeout(ft))
 
 const running = computed(
-  () => `Selamat datang di RS SPKD. Silakan ambil nomor antrean di mesin APM atau loket pendaftaran. Siapkan KTP atau kartu BPJS Anda. Saat ini ${menunggu.value.length} antrean menunggu. Jagalah kebersihan dan gunakan masker bila batuk atau pilek.`,
+  () => `Selamat datang di RS SPKD. Silakan ambil nomor antrean di mesin APM atau loket pendaftaran. Siapkan KTP atau kartu BPJS Anda. Saat ini ${menunggu.value} antrean menunggu. Jagalah kebersihan dan gunakan masker bila batuk atau pilek.`,
 )
-const waktuTunggu = (t: any) => fmtJam(t.jam)
 </script>
 <template>
   <div class="tv">
@@ -39,7 +35,7 @@ const waktuTunggu = (t: any) => fmtJam(t.jam)
         <template v-if="current">
           <small>Sedang dipanggil</small>
           <div class="no">{{ current.nomor }}</div>
-          <div class="to">→ Loket {{ current.loket }}</div>
+          <div class="to">→ {{ current.loketNama }}</div>
         </template>
         <template v-else>
           <small>Antrean pendaftaran</small>
@@ -47,12 +43,14 @@ const waktuTunggu = (t: any) => fmtJam(t.jam)
         </template>
       </div>
       <div class="tv-next">
-        <h2>Antrean berikutnya</h2>
+        <h2>Loket</h2>
         <ul>
-          <li v-for="t in next" :key="t.id" class="nx"><span>{{ t.nomor }}</span><small>{{ waktuTunggu(t) }}</small></li>
-          <li v-if="!next.length" class="nx empty">Tidak ada antrean menunggu</li>
+          <li v-for="l in lokets" :key="l.id" class="nx" :class="{ off: !l.aktif }">
+            <span>{{ l.nama }}</span><b>{{ !l.aktif ? 'tutup' : l.current ? l.current.nomor : '-' }}</b>
+          </li>
+          <li v-if="!lokets.length" class="nx empty">{{ err ? 'Menghubungkan ke server…' : 'Belum ada loket' }}</li>
         </ul>
-        <p class="sisa">Total menunggu: <b>{{ menunggu.length }}</b></p>
+        <p class="sisa">Total menunggu: <b>{{ menunggu }}</b></p>
       </div>
     </div>
     <div class="tv-run"><span>{{ running }}</span></div>
@@ -64,6 +62,8 @@ const waktuTunggu = (t: any) => fmtJam(t.jam)
 .nx { display: flex; justify-content: space-between; align-items: baseline; }
 .nx small { font-size: 22px; font-weight: 500; opacity: .6; }
 .nx.empty { font-size: 24px; font-weight: 500; opacity: .7; }
+.nx.off { opacity: .45; }
+.nx b { font-weight: 700; font-variant-numeric: tabular-nums; }
 .sisa { margin-top: 16px; font-size: 24px; opacity: .8; }
 .tv-sound { z-index: 5; }
 .tv-top b { font-weight: 700; }

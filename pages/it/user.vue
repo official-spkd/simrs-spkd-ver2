@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import type { ApiRole, ApiUser } from '~/composables/useUsers'
+import type { ApiPoli } from '~/composables/usePolis'
+import type { ApiDoctor } from '~/composables/useDoctors'
 // IT-01 User & Role — akun dan role dari backend (khusus superadmin); matriks akses masih lokal.
 const { db } = useDb()
 const { setMatrix } = useAdmin()
@@ -60,14 +62,60 @@ const isSelf = (u: ApiUser) => u.id === user.value?.id
 const show = ref(false)
 const saving = ref(false)
 const formErr = ref('')
-const empty = () => ({ id: '', name: '', nip: '', email: '', role: 'front_office', origRole: '' })
+const DOKTER = 'doctor'
+const empty = () => ({ id: '', name: '', nip: '', email: '', role: 'front_office', origRole: '', poli_id: '', doctorId: '', sip_number: '', str_number: '', orig: { poli_id: '', sip_number: '', str_number: '' } })
 const form = reactive(empty())
 watch(() => form.nip, (v) => { const c = onlyDigits(v, 30); if (c !== v) form.nip = c })
+const isDokter = computed(() => form.role === DOKTER)
+
+// poli aktif (server mewajibkan poli aktif) + master dokter (/doctors) untuk mengisi SIP/STR
+const poliOpsi = ref<ApiPoli[]>([])
+const dokterOpsi = ref<ApiDoctor[]>([])
+const loadPoli = async () => {
+  try {
+    const [p, d] = await Promise.all([usePolis().all(), useDoctors().all({ is_active: true })])
+    poliOpsi.value = p.filter((x) => x.is_active)
+    dokterOpsi.value = d
+    // ubah user: tandai dokter master yang SIP-nya sama
+    if (!form.doctorId && form.sip_number) form.doctorId = d.find((x) => x.sip_number === form.sip_number)?.id || ''
+  } catch (e: any) { formErr.value = `Gagal memuat poli/dokter: ${e.message}` }
+}
+watch(isDokter, (v) => { if (v && show.value && !poliOpsi.value.length) loadPoli() })
+const dokterPoli = computed(() => dokterOpsi.value.filter((d) => !form.poli_id || d.poli?.id === form.poli_id))
+// pilih dokter master → isi SIP/STR dan poli-nya
+watch(() => form.doctorId, (id) => {
+  const d = dokterOpsi.value.find((x) => x.id === id)
+  if (d) { form.sip_number = d.sip_number; form.str_number = d.str_number; form.poli_id = d.poli?.id || form.poli_id }
+})
+// ganti poli → lepas pemetaan dokter yang bukan dari poli itu
+watch(() => form.poli_id, () => {
+  if (form.doctorId && !dokterPoli.value.some((d) => d.id === form.doctorId)) form.doctorId = ''
+})
+
 const buka = (u?: ApiUser) => {
   Object.assign(form, empty())
-  if (u) Object.assign(form, { id: u.id, name: u.name, nip: u.nip, email: u.email, role: u.role, origRole: u.role })
+  if (u) {
+    const dp = u.doctor_profile
+    const doc = { poli_id: dp?.poli?.id || '', sip_number: dp?.sip_number || '', str_number: dp?.str_number || '' }
+    Object.assign(form, { id: u.id, name: u.name, nip: u.nip, email: u.email, role: u.role, origRole: u.role, ...doc, orig: { ...doc } })
+  }
   formErr.value = ''
   show.value = true
+  if (isDokter.value && !poliOpsi.value.length) loadPoli()
+  else if (form.sip_number) form.doctorId = dokterOpsi.value.find((x) => x.sip_number === form.sip_number)?.id || ''
+}
+/** Profil dokter: wajib lengkap saat register / ganti role ke doctor. */
+const cekDokter = () => {
+  if (!form.poli_id) return 'Poli dokter wajib dipilih'
+  if (form.sip_number.trim().length < 5) return 'No. SIP minimal 5 karakter'
+  if (form.str_number.trim().length < 5) return 'No. STR minimal 5 karakter'
+  return ''
+}
+const dokterFields = () => ({ poli_id: form.poli_id, sip_number: form.sip_number.trim(), str_number: form.str_number.trim() })
+/** Untuk PUT: hanya field dokter yang berubah (sesuai kontrak API). */
+const dokterBerubah = () => {
+  const d: Record<string, string> = dokterFields()
+  return Object.fromEntries(Object.entries(d).filter(([k, v]) => v !== (form.orig as any)[k]))
 }
 const hasil = ref<{ judul: string; user: string; pw: string } | null>(null)
 const simpan = async () => {
@@ -76,16 +124,19 @@ const simpan = async () => {
   if (!f.name || !f.nip || !f.email) { formErr.value = 'Nama, NIP, dan email wajib diisi'; return }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email)) { formErr.value = 'Format email tidak valid'; return }
   if (!form.role) { formErr.value = 'Role wajib dipilih'; return }
+  if (isDokter.value) { const e = cekDokter(); if (e) { formErr.value = e; return } }
   saving.value = true
   try {
     if (!form.id) {
       const pw = tempPassword()
-      await svc.create({ ...f, password: pw, role: form.role })
+      await svc.create({ ...f, password: pw, role: form.role, ...(isDokter.value ? dokterFields() : {}) })
       hasil.value = { judul: 'User ditambahkan', user: f.email, pw }
       toast.ok(`User ${f.name} ditambahkan`)
     } else {
-      await svc.update(form.id, f)
-      if (form.role !== form.origRole) await svc.setRole(form.id, form.role)
+      // Tetap dokter → profil ikut PUT. Jadi dokter → profil dikirim lewat PATCH role (PUT menolaknya untuk role lain).
+      const tetapDokter = isDokter.value && form.origRole === DOKTER
+      await svc.update(form.id, { ...f, ...(tetapDokter ? dokterBerubah() : {}) })
+      if (form.role !== form.origRole) await svc.setRole(form.id, form.role, isDokter.value ? dokterFields() : {})
       toast.ok(`User ${f.name} diperbarui`)
     }
     show.value = false
@@ -202,7 +253,7 @@ const ubahMatriks = (modul: string, key: string, e: Event) => {
               <td data-label="Nama"><b>{{ u.name }}</b><span v-if="isSelf(u)" class="badge b-navy" style="margin-left: 6px">Anda</span></td>
               <td data-label="NIP" class="mono">{{ u.nip }}</td>
               <td data-label="Email">{{ u.email }}</td>
-              <td data-label="Role"><span class="badge b-navy">{{ roleName(u.role) }}</span></td>
+              <td data-label="Role"><span class="badge b-navy">{{ roleName(u.role) }}</span><div v-if="u.doctor_profile?.poli" class="muted small">{{ u.doctor_profile.poli.name }}</div></td>
               <td data-label="Status"><StatusBadge :value="u.is_active ? 'aktif' : 'nonaktif'" /></td>
               <td data-label="Dibuat">{{ fmtWaktu(u.created_at) }}</td>
               <td data-label="Aksi">
@@ -290,7 +341,22 @@ const ubahMatriks = (modul: string, key: string, e: Event) => {
           </select>
           <span v-if="form.id && form.id === user?.id" class="hint">Role akun sendiri tidak dapat diubah.</span>
         </div>
+        <template v-if="isDokter">
+          <div class="field"><label class="req" for="uf-poli">Poli</label>
+            <select id="uf-poli" v-model="form.poli_id" class="select">
+              <option value="">{{ poliOpsi.length ? 'Pilih poli' : 'Memuat poli…' }}</option>
+              <option v-for="p in poliOpsi" :key="p.id" :value="p.id">{{ p.name }}</option>
+              <option v-if="form.poli_id && !poliOpsi.some((p) => p.id === form.poli_id)" :value="form.poli_id" disabled>Poli saat ini (nonaktif)</option>
+            </select>
+          </div>
+          <div class="field"><label for="uf-dr">Data dokter (opsional, mengisi SIP/STR)</label>
+            <select id="uf-dr" v-model="form.doctorId" class="select"><option value="">Tidak dipetakan</option><option v-for="d in dokterPoli" :key="d.id" :value="d.id">{{ d.name }}</option></select>
+          </div>
+          <div class="field"><label class="req" for="uf-sip">No. SIP</label><input id="uf-sip" v-model="form.sip_number" class="input mono" maxlength="50" placeholder="mis. 446/001/SIP-D/2026" /></div>
+          <div class="field"><label class="req" for="uf-str">No. STR</label><input id="uf-str" v-model="form.str_number" class="input mono" maxlength="50" /></div>
+        </template>
       </div>
+      <p v-if="form.id && form.origRole === DOKTER && !isDokter" class="hint">Mengganti role dari Doctor akan menghapus profil dokter (poli, SIP, STR) user ini.</p>
       <p v-if="formErr" class="alert err" role="alert" style="margin-top: 12px">{{ formErr }}</p>
       <p v-if="!form.id" class="hint">Password sementara dibuat otomatis dan ditampilkan sekali setelah disimpan.</p>
       <template #footer>

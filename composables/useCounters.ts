@@ -1,6 +1,8 @@
 // Antrean loket dari backend (/api/v1/counters, /api/v1/queues, khusus role front_office).
 // Tiket loket diterbitkan server saat kunjungan didaftarkan (POST /api/v1/visits) — tidak ada endpoint ambil nomor.
 // Alur: WAITING -next-> CALLING -serve-> SERVING -complete-> COMPLETED; CALLING -skip-> SKIPPED; recall = bunyikan bel lagi.
+// Semua tampilan dibatasi ke tanggal hari ini (queue_date). Tiket hari sebelumnya yang masih dipegang loket
+// ditandai "tertinggal": tidak ditampilkan sebagai panggilan aktif, tetapi harus diselesaikan/dilewati agar loket bebas.
 
 const STATUS: Record<string, string> = { WAITING: 'menunggu', CALLING: 'dipanggil', SERVING: 'dilayani', COMPLETED: 'selesai', SKIPPED: 'dilewati' }
 const LOKET_KEY = 'spkd-loket'
@@ -12,6 +14,7 @@ export const fmtNomorLoket = (n?: string | null) => (n ? n.replace(/^([A-Za-z]+)
 const view = (q: any) => q && {
   id: q.id,
   nomor: fmtNomorLoket(q.queue_number),
+  tanggal: (q.queue_date || '').slice(0, 10),
   status: STATUS[q.status] || q.status,
   raw: q.status as string,
   loketId: q.counter?.id || '',
@@ -32,23 +35,41 @@ export function useCounters() {
   const lokets = useState<any[]>('lokets', () => [])
   const menunggu = useState<any[]>('loket-menunggu', () => [])
   const log = useState<any[]>('loket-log', () => [])
+  const hariIni = useState<string>('loket-hari', () => todayStr())
   const loketId = useState<string>('loket-id', () => {
     try { return localStorage.getItem(LOKET_KEY) || '' } catch { return '' }
   })
   watch(loketId, (v) => { try { localStorage.setItem(LOKET_KEY, v) } catch {} })
 
   const loket = computed(() => lokets.value.find((l) => l.id === loketId.value) || null)
+  /** Tiket hari ini yang sedang dipegang loket terpilih. */
   const aktif = computed(() => loket.value?.current || null)
+  /** Tiket hari sebelumnya yang masih dipegang loket terpilih (belum diselesaikan). */
+  const tertinggal = computed(() => loket.value?.tertinggal || null)
 
-  /** Muat loket + daftar tiket hari ini (menunggu dan log aksi). */
+  /** Semua tiket satu tanggal (semua halaman, urutan panggil dari server). */
+  const tiketTanggal = async (date: string) => {
+    const out: any[] = []
+    for (let page = 1; page <= 20; page++) {
+      const r = await apiPage('/api/v1/queues', { query: { date, page, limit: 100 } })
+      out.push(...r.data)
+      if (!r.pagination?.has_next_page) break
+    }
+    return out
+  }
+
+  /** Muat loket + daftar tiket hari ini (menunggu dan log aksi). Tanggal dihitung ulang tiap muat → ganti hari otomatis. */
   const refresh = async () => {
-    const [cs, qs] = await Promise.all([
-      api<any[]>('/api/v1/counters'),
-      apiPage('/api/v1/queues', { query: { date: todayStr(), limit: 100 } }),
-    ])
-    lokets.value = (cs || []).map((c) => ({ id: c.id, nama: c.name, aktif: c.is_active, current: view(c.current) }))
+    const today = todayStr()
+    const [cs, qs] = await Promise.all([api<any[]>('/api/v1/counters'), tiketTanggal(today)])
+    hariIni.value = today
+    lokets.value = (cs || []).map((c) => {
+      const cur = view(c.current)
+      const basi = !!cur && cur.tanggal !== today
+      return { id: c.id, nama: c.name, aktif: c.is_active, current: basi ? null : cur, tertinggal: basi ? cur : null }
+    })
     if (!lokets.value.some((l) => l.id === loketId.value)) loketId.value = lokets.value.find((l) => l.aktif)?.id || lokets.value[0]?.id || ''
-    const all = qs.data.map(view)
+    const all = qs.map(view).filter((t) => t.tanggal === today)
     menunggu.value = all.filter((t) => t.raw === 'WAITING')
     log.value = all.filter((t) => t.raw !== 'WAITING').sort((a, b) => (a.aksiAt < b.aksiAt ? 1 : -1))
   }
@@ -73,6 +94,25 @@ export function useCounters() {
     return err
   }
 
-  return { lokets, loketId, loket, aktif, menunggu, log, refresh, poll, setAktif,
+  return { lokets, loketId, loket, aktif, tertinggal, menunggu, log, hariIni, refresh, poll, setAktif,
     next: () => act('next'), serve: () => act('serve'), recall: () => act('recall'), skip: () => act('skip'), complete: () => act('complete') }
+}
+
+/** Data publik layar antrean (/api/v1/display/queues, tanpa login). Panggilan hari sebelumnya disaring. */
+export async function displayQueues() {
+  const d = await api<any>('/api/v1/display/queues')
+  const today = todayStr()
+  const hariIniDipanggil = (c: any) => !!c && dateOf(c.last_called_at || c.called_at) === today
+  return {
+    tanggal: d?.date || today,
+    menunggu: d?.waiting_count || 0,
+    lokets: (d?.counters || []).map((c: any) => ({
+      id: c.counter_id,
+      nama: c.counter_name,
+      aktif: c.is_active,
+      current: hariIniDipanggil(c.current)
+        ? { nomor: fmtNomorLoket(c.current.queue_number), raw: c.current.status, dipanggil: c.current.call_count, lastCalledAt: c.current.last_called_at || c.current.called_at }
+        : null,
+    })),
+  }
 }

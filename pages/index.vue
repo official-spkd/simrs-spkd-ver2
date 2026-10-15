@@ -10,7 +10,12 @@ const menunggu = computed(() => aktif.value.filter((v: any) => v.status === 'ter
 const dilayani = computed(() => aktif.value.filter((v: any) => v.status === 'dilayani'))
 const siapBayar = computed(() => aktif.value.filter((v: any) => v.status === 'selesai'))
 const lunas = computed(() => aktif.value.filter((v: any) => v.status === 'lunas'))
-const sisaLoket = computed(() => db.loket.filter((x: any) => x.status === 'menunggu').length)
+// antrean loket menunggu hari ini — dari server (/api/v1/display/queues), dimuat ulang tiap 10 detik
+const sisaLoket = ref<number | string>('-')
+const muatLoket = () => displayQueues().then((d) => (sisaLoket.value = d.menunggu), () => (sisaLoket.value = '-'))
+let tLoket: any
+onMounted(() => { if (role.value === 'fo') { muatLoket(); tLoket = setInterval(muatLoket, 10000) } })
+onBeforeUnmount(() => clearInterval(tLoket))
 const pendapatan = computed(() => Object.values(db.bills).flatMap((b: any) => b.payments || []).reduce((s: number, p: any) => s + p.jumlah, 0))
 const gagal = computed(() => db.outbox.filter((o: any) => o.status === 'gagal').length)
 const antri = computed(() => db.outbox.filter((o: any) => o.status === 'antrian').length)
@@ -33,7 +38,7 @@ const sisaTagihan = computed(() => siapBayar.value.reduce((s: number, v: any) =>
     <div class="grid g4">
       <template v-if="role === 'fo'">
         <div class="kpi"><small>Kunjungan hari ini</small><b>{{ aktif.length }}</b><span>{{ hari.length - aktif.length }} dibatalkan</span></div>
-        <div class="kpi"><small>Antrean loket menunggu</small><b>{{ sisaLoket }}</b><span>Tiket loket / APM / reservasi</span></div>
+        <div class="kpi"><small>Antrean loket menunggu</small><b>{{ sisaLoket }}</b><span>Hari ini, dari server</span></div>
         <div class="kpi"><small>Menunggu poli</small><b>{{ menunggu.length }}</b><span>Terdaftar, belum dilayani</span></div>
         <div class="kpi"><small>Reservasi check-in</small><b>{{ db.reservations.filter((r: any) => r.tanggal === t && r.status === 'booked').length }}</b><span>Pasien belum hadir</span></div>
       </template>

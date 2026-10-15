@@ -1,6 +1,9 @@
 // Manajemen akun & role di backend (/api/v1/users, /api/v1/roles) — khusus superadmin.
 
-export interface ApiUser { id: string; name: string; nip: string; email: string; role: string; is_active: boolean; created_at: string; updated_at?: string }
+export interface DoctorProfile { poli: { id: string; name: string; prefix_code: string; room: string } | null; sip_number: string; str_number: string }
+export interface ApiUser { id: string; name: string; nip: string; email: string; role: string; is_active: boolean; created_at: string; updated_at?: string; doctor_profile?: DoctorProfile }
+/** Wajib untuk role doctor saat register / ganti role; ditolak server untuk role lain. Pada PUT kirim yang berubah saja. */
+export interface DoctorFields { poli_id?: string; sip_number?: string; str_number?: string }
 export interface ApiRole { id: string; name: string; display_name: string; description: string; is_system: boolean }
 
 /** Password sementara 12 karakter tanpa huruf yang mirip (0/O, 1/l/I). */
@@ -16,11 +19,11 @@ export function useUsers() {
     apiPage<ApiUser>('/api/v1/users', {
       query: { search: q.search?.trim(), role: q.role, is_active: q.status === '' ? '' : q.status === 'aktif', page: q.page || 1, limit: q.limit || 20 },
     })
-  const create = (f: { name: string; nip: string; email: string; password: string; role: string }) =>
+  const create = (f: { name: string; nip: string; email: string; password: string; role: string } & DoctorFields) =>
     api<ApiUser>('/api/v1/auth/register', { method: 'POST', body: f })
-  const update = (id: string, f: { name: string; nip: string; email: string }) =>
+  const update = (id: string, f: { name: string; nip: string; email: string } & DoctorFields) =>
     api<ApiUser>(`/api/v1/users/${id}`, { method: 'PUT', body: f })
-  const setRole = (id: string, role: string) => api<ApiUser>(`/api/v1/users/${id}/role`, { method: 'PATCH', body: { role } })
+  const setRole = (id: string, role: string, doctor: DoctorFields = {}) => api<ApiUser>(`/api/v1/users/${id}/role`, { method: 'PATCH', body: { role, ...doctor } })
   const setStatus = (id: string, isActive: boolean) => api<ApiUser>(`/api/v1/users/${id}/status`, { method: 'PATCH', body: { is_active: isActive } })
   const resetPassword = (id: string, newPassword: string) => api(`/api/v1/users/${id}/password`, { method: 'PUT', body: { new_password: newPassword } })
   const remove = (id: string) => api(`/api/v1/users/${id}`, { method: 'DELETE' })

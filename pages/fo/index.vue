@@ -9,7 +9,7 @@ const searchQ = ref('')
 const openSearch = () => { searchQ.value = q.value.trim(); searchOpen.value = true }
 
 // antrean loket — langsung dari server (/api/v1/counters); loket terpilih sama dengan di FO-07
-const { lokets, loketId, loket, aktif, menunggu, poll, next, skip } = useCounters()
+const { lokets, loketId, loket, aktif, tertinggal, menunggu, poll, next, skip, complete } = useCounters()
 const loketErr = poll()
 const loketBusy = ref(false)
 const runLoket = async (fn: () => Promise<any>, okMsg: (t: any) => string) => {
@@ -18,6 +18,7 @@ const runLoket = async (fn: () => Promise<any>, okMsg: (t: any) => string) => {
 }
 const panggil = () => runLoket(next, (t) => `Memanggil ${t.nomor} ke ${loket.value?.nama}`)
 const lewati = () => runLoket(skip, () => 'Nomor dilewati')
+const bebaskan = () => runLoket(tertinggal.value?.raw === 'CALLING' ? skip : complete, (t) => `${t.nomor} (${fmtTgl(t.tanggal)}) ditutup, loket siap memanggil`)
 
 // tabel kunjungan — langsung dari server (GET /api/v1/visits); filter & halaman diproses server
 const visitSvc = useVisits()
@@ -94,9 +95,13 @@ const detailPt = computed(() => (detail.value?.patientId ? patient(detail.value.
           <div class="muted small" style="margin-top: 6px">{{ loket?.nama || 'Loket' }} · {{ aktif?.raw === 'SERVING' ? 'sedang dilayani' : 'sedang dipanggil' }}</div>
           <div class="bignum">{{ aktif ? aktif.nomor : '-' }}</div>
           <div v-if="aktif" class="row" style="margin-bottom: 8px"><StatusBadge :value="aktif.status" /><span class="muted small">diambil {{ fmtJam(aktif.jam) }}<template v-if="aktif.nama"> · {{ aktif.nama }}</template></span></div>
-          <div class="muted" style="margin-bottom: 14px">Sisa antrean: <b>{{ menunggu.length }}</b> menunggu</div>
+          <div v-if="tertinggal" class="alert warn small" role="alert" style="margin-bottom: 10px">
+            Nomor <b class="mono">{{ tertinggal.nomor }}</b> dari {{ fmtTgl(tertinggal.tanggal) }} masih tertahan di loket ini.
+            <button class="btn btn-sm" style="margin-top: 6px" :disabled="loketBusy" @click="bebaskan">{{ tertinggal.raw === 'CALLING' ? 'Lewati nomor lama' : 'Selesaikan nomor lama' }}</button>
+          </div>
+          <div class="muted" style="margin-bottom: 14px">Sisa antrean hari ini: <b>{{ menunggu.length }}</b> menunggu</div>
           <div class="row">
-            <button class="btn btn-primary" style="flex: 1" :disabled="loketBusy || !loket?.aktif || !!aktif" :title="aktif ? 'Selesaikan atau lewati nomor saat ini dulu' : ''" @click="panggil">Panggil berikutnya</button>
+            <button class="btn btn-primary" style="flex: 1" :disabled="loketBusy || !loket?.aktif || !!aktif || !!tertinggal" :title="aktif || tertinggal ? 'Selesaikan atau lewati nomor saat ini dulu' : ''" @click="panggil">Panggil berikutnya</button>
             <button class="btn" :disabled="loketBusy || aktif?.raw !== 'CALLING'" @click="lewati">Lewati</button>
           </div>
           <NuxtLink to="/fo/antrean" class="small" style="display: inline-block; margin-top: 12px">Buka layar pemanggilan penuh</NuxtLink>

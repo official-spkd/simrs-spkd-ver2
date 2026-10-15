@@ -85,16 +85,47 @@ export function useVwrCalls(types: string[], onCall: (e: any, live: boolean) => 
   return { replay, latest }
 }
 
-/** Data VWR-01: panggilan loket terakhir + 5 nomor berikutnya. */
-export function useVwrLoket() {
-  const { db, loketMenunggu } = useDb()
-  const current = computed(() => {
-    const e = db.queueLog.find((x: any) => x.type === 'loket' && (x.aksi === 'panggil' || x.aksi === 'panggil ulang'))
-    if (e) return { nomor: e.nomor, loket: e.loket }
-    const t = [...db.loket].reverse().find((x: any) => x.status === 'dipanggil')
-    return t ? { nomor: t.nomor, loket: t.loket } : null
+/**
+ * Data VWR-01 dari server (/api/v1/display/queues, publik, dipoll tiap 3 detik). Hanya panggilan hari ini.
+ * onCall(e, live) dipanggil bila last_called_at sebuah loket berubah (panggil baru / panggil ulang):
+ * live=false untuk muatan pertama (replay), live=true untuk perubahan setelahnya.
+ */
+export function useVwrLoket(onCall: (e: any, live: boolean) => void = () => {}, ms = 3000) {
+  const lokets = ref<any[]>([])
+  const menunggu = ref(0)
+  const tanggal = ref(todayStr())
+  const err = ref('')
+  const seen = new Map<string, string>()
+  let first = true
+  /** Panggilan terakhir di semua loket (untuk tampilan besar & replay suara). */
+  const current = computed(() =>
+    lokets.value.filter((l) => l.current).map((l) => ({ nomor: l.current.nomor, loket: l.nama.replace(/^loket\s*/i, ''), loketNama: l.nama, at: l.current.lastCalledAt, type: 'loket' }))
+      .sort((a, b) => (a.at < b.at ? 1 : -1))[0] || null)
+  const muat = async () => {
+    try {
+      const d = await displayQueues()
+      lokets.value = d.lokets
+      menunggu.value = d.menunggu
+      tanggal.value = d.tanggal
+      err.value = ''
+      const calls = d.lokets.filter((l: any) => l.current).map((l: any) => ({ nomor: l.current.nomor, loket: l.nama.replace(/^loket\s*/i, ''), loketNama: l.nama, at: l.current.lastCalledAt, type: 'loket' }))
+      const baru = calls.filter((c: any) => seen.get(c.loketNama) !== c.at).sort((a: any, b: any) => (a.at > b.at ? 1 : -1))
+      calls.forEach((c: any) => seen.set(c.loketNama, c.at))
+      if (first) { first = false; if (current.value) onCall(current.value, false) } else baru.forEach((c: any) => onCall(c, true))
+    } catch (e: any) { err.value = e.message }
+  }
+  let t: any
+  const onVisible = () => document.visibilityState === 'visible' && muat()
+  onMounted(() => {
+    muat()
+    t = setInterval(muat, ms)
+    window.addEventListener('online', muat)
+    document.addEventListener('visibilitychange', onVisible)
   })
-  const menunggu = computed(() => loketMenunggu().sort((a: any, b: any) => (a.jam > b.jam ? 1 : -1)))
-  const next = computed(() => menunggu.value.slice(0, 5))
-  return { current, menunggu, next }
+  onBeforeUnmount(() => {
+    clearInterval(t)
+    window.removeEventListener('online', muat)
+    document.removeEventListener('visibilitychange', onVisible)
+  })
+  return { lokets, current, menunggu, tanggal, err }
 }

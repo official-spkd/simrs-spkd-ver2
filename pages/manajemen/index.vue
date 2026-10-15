@@ -16,18 +16,31 @@ const menungguPoli = computed(() => db.visits.filter((v: any) => v.tanggal === t
 
 const avg = (arr: number[]) => (arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null)
 const tungguPoli = computed(() => avg(aktif.value.filter((v: any) => v.jamPanggil).map((v: any) => menitAntara(v.jamDaftar, v.jamPanggil))))
-// Waktu tunggu loket: dari log panggilan bila ada; bila tidak, estimasi dari tiket yang masih menunggu.
-const tungguLoket = computed(() => {
-  const dipanggilLog = db.queueLog.filter((e: any) => e.type === 'loket' && e.aksi === 'panggil')
-  const hasil: number[] = []
-  dipanggilLog.forEach((e: any) => {
-    const tk = db.loket.find((x: any) => x.nomor === e.nomor)
-    if (tk) hasil.push(menitAntara(tk.jam, e.at))
-  })
-  if (hasil.length) return { v: avg(hasil), est: false }
-  const mnt = db.loket.filter((x: any) => x.status === 'menunggu').map((x: any) => menitAntara(x.jam))
-  return { v: avg(mnt), est: true }
-})
+// Waktu tunggu loket dari server (/api/v1/queues per tanggal): tiket dibuat → pertama dipanggil.
+// Endpoint khusus Front Office; bila ditolak, KPI menampilkan alasannya.
+const tungguLoket = ref<{ v: number | null; n: number; menunggu: number; info: string }>({ v: null, n: 0, menunggu: 0, info: 'memuat…' })
+const muatLoket = async () => {
+  const tanggal: string[] = []
+  for (let d = dari.value; d <= t; d = addDays(d, 1)) tanggal.push(d)
+  try {
+    const hasil = await Promise.all(tanggal.map(async (d) => {
+      const out: any[] = []
+      for (let page = 1; page <= 20; page++) {
+        const r = await apiPage('/api/v1/queues', { query: { date: d, page, limit: 100 } })
+        out.push(...r.data)
+        if (!r.pagination?.has_next_page) break
+      }
+      return out
+    }))
+    const tiket = hasil.flat()
+    const mnt = tiket.filter((q: any) => q.called_at).map((q: any) => menitAntara(q.created_at, q.called_at))
+    tungguLoket.value = { v: avg(mnt), n: mnt.length, menunggu: tiket.filter((q: any) => q.status === 'WAITING' && q.queue_date?.slice(0, 10) === t).length, info: '' }
+  } catch (e: any) {
+    tungguLoket.value = { v: null, n: 0, menunggu: 0, info: e.status === 403 ? 'data antrean hanya untuk Front Office' : e.message }
+  }
+}
+onMounted(muatLoket)
+watch(rentang, muatLoket)
 
 const pembayaran = computed(() => {
   let total = 0, lunas = 0, tagihan = 0
@@ -84,7 +97,7 @@ const tglPendek = (d: string) => d.slice(8, 10) + '/' + d.slice(5, 7)
       <div class="kpi"><small>Rata-rata tunggu poli</small><b>{{ tungguPoli === null ? '-' : tungguPoli + ' mnt' }}</b><span>daftar → dipanggil</span></div>
       <div class="kpi">
         <small>Rata-rata tunggu loket</small><b>{{ tungguLoket.v === null ? '-' : tungguLoket.v + ' mnt' }}</b>
-        <span>{{ tungguLoket.est ? 'estimasi dari tiket yang masih menunggu' : 'dari log pemanggilan' }}</span>
+        <span>{{ tungguLoket.info || `${tungguLoket.n} tiket dipanggil · ${tungguLoket.menunggu} menunggu hari ini` }}</span>
       </div>
       <div class="kpi"><small>Pendapatan</small><b>{{ fmtRp(pembayaran.total) }}</b><span>{{ pembayaran.lunas }} tagihan lunas · total tagihan {{ fmtRp(pembayaran.tagihan) }}</span></div>
       <div class="kpi"><small>Kunjungan dibatalkan</small><b>{{ batal.length }}</b><span><NuxtLink to="/manajemen/pembatalan">Lihat laporan pembatalan</NuxtLink></span></div>

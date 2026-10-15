@@ -244,9 +244,9 @@ export function useDb() {
     return { ...sch, cuti: cuti || null, terisiLoket: loketN, terisiApm: apmN, terisiReservasi: rsvN, terisi, sisa: cuti && !cuti.penggantiId ? 0 : Math.max(0, sch.kuota - terisi) }
   }
   const polisAktifHariIni = (date = todayStr()) =>
-    db.polis.filter((p: any) => p.aktif && db.doctors.some((d: any) => d.poliId === p.id && sessionFor(d.id, date)))
+    db.polis.filter((p: any) => p.aktif && db.doctors.some((d: any) => d.poliId === p.id && d.aktif !== false && sessionFor(d.id, date)))
   const doctorsOfPoli = (poliId: string, date = todayStr()) =>
-    db.doctors.filter((d: any) => d.poliId === poliId).map((d: any) => ({ ...d, sesi: sessionFor(d.id, date) })).filter((d: any) => d.sesi)
+    db.doctors.filter((d: any) => d.poliId === poliId && d.aktif !== false).map((d: any) => ({ ...d, sesi: sessionFor(d.id, date) })).filter((d: any) => d.sesi)
 
   // ---------- pasien ----------
   const searchPatients = (q: string, tipe = 'auto') => {

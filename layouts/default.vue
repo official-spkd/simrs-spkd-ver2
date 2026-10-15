@@ -22,6 +22,9 @@ onMounted(() => {
   const f = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openSearch() } }
   window.addEventListener('keydown', f)
   timer = setInterval(flushOutbox, 5000)
+  // master poli & dokter dari server → db.polis / db.doctors (dropdown pendaftaran, jadwal); gagal = tetap pakai salinan lokal.
+  // Dokter setelah poli karena poli dokter dipetakan lewat db.polis.
+  if (user.value) usePolis().refresh().then(() => useDoctors().refresh()).catch(() => {})
   onBeforeUnmount(() => { window.removeEventListener('keydown', f); clearInterval(timer) })
 })
 const crumbs = computed(() => {

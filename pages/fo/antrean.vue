@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // FO-07 Pemanggilan Antrean Loket — langsung dari server (/api/v1/counters, /api/v1/queues)
-const { lokets, loketId, loket, aktif, menunggu, log, poll, next, serve, recall, skip, complete } = useCounters()
+const { lokets, loketId, loket, aktif, tertinggal, menunggu, log, hariIni, poll, next, serve, recall, skip, complete } = useCounters()
 const toast = useToast()
 const loadErr = poll()
 
@@ -16,6 +16,7 @@ const hadir = () => run(serve, (t) => `${t.nomor} sedang dilayani`)
 const ulang = () => run(recall, () => 'Panggilan diulang')
 const lewati = () => run(skip, () => 'Nomor dilewati')
 const selesai = () => run(complete, () => 'Pelayanan loket selesai')
+const bebaskan = () => run(tertinggal.value?.raw === 'CALLING' ? skip : complete, (t) => `${t.nomor} (${fmtTgl(t.tanggal)}) ditutup, loket siap memanggil`)
 </script>
 
 <template>
@@ -31,7 +32,13 @@ const selesai = () => run(complete, () => 'Pelayanan loket selesai')
       <div class="seg" role="group" aria-label="Pilih loket">
         <button v-for="l in lokets" :key="l.id" type="button" :class="{ on: loketId === l.id }" :disabled="!l.aktif" :title="l.aktif ? '' : 'Loket nonaktif'" @click="loketId = l.id">{{ l.nama }}</button>
       </div>
-      <span v-for="l in lain" :key="l.id" class="muted small">{{ l.nama }}: <b>{{ !l.aktif ? 'nonaktif' : l.current ? l.current.nomor : 'kosong' }}</b></span>
+      <span v-for="l in lain" :key="l.id" class="muted small">{{ l.nama }}: <b>{{ !l.aktif ? 'nonaktif' : l.current ? l.current.nomor : l.tertinggal ? 'tertahan nomor ' + fmtTgl(l.tertinggal.tanggal) : 'kosong' }}</b></span>
+      <span class="muted small" style="margin-left: auto">Antrean {{ fmtTglPanjang(hariIni) }}</span>
+    </div>
+
+    <div v-if="tertinggal" class="alert warn row between" role="alert" style="margin-bottom: 16px">
+      <span>{{ loket?.nama }} masih memegang nomor <b class="mono">{{ tertinggal.nomor }}</b> dari {{ fmtTgl(tertinggal.tanggal) }} ({{ tertinggal.status }}<template v-if="tertinggal.nama"> · {{ tertinggal.nama }}</template>). Tutup nomor ini dulu agar loket bisa memanggil antrean hari ini.</span>
+      <button class="btn btn-sm" :disabled="busy" @click="bebaskan">{{ tertinggal.raw === 'CALLING' ? 'Lewati nomor lama' : 'Selesaikan nomor lama' }}</button>
     </div>
 
     <div class="split-r">
@@ -45,7 +52,7 @@ const selesai = () => run(complete, () => 'Pelayanan loket selesai')
           </template>
           <p v-else class="muted">Belum ada nomor yang dipanggil.</p>
           <div class="row" style="justify-content: center; margin-top: 18px">
-            <button class="btn btn-primary btn-lg" :disabled="busy || !loket?.aktif || !!aktif" :title="aktif ? 'Selesaikan atau lewati nomor saat ini dulu' : ''" @click="panggil">Panggil berikutnya</button>
+            <button class="btn btn-primary btn-lg" :disabled="busy || !loket?.aktif || !!aktif || !!tertinggal" :title="aktif || tertinggal ? 'Selesaikan atau lewati nomor saat ini dulu' : ''" @click="panggil">Panggil berikutnya</button>
             <button v-if="aktif?.raw === 'CALLING'" class="btn btn-lg" :disabled="busy" @click="hadir">Pasien hadir</button>
             <button class="btn btn-lg" :disabled="busy || aktif?.raw !== 'CALLING'" @click="ulang">Panggil ulang</button>
             <button class="btn btn-lg" :disabled="busy || aktif?.raw !== 'CALLING'" @click="lewati">Lewati</button>

@@ -3,8 +3,9 @@ definePageMeta({ layout: 'tv' })
 const route = useRoute()
 const { db, doctor } = useDb()
 const gabung = computed(() => route.query.gabung === '1' || route.query.gabung === 'true')
-const { current, next: nextLoket, menunggu } = useVwrLoket()
 const { soundOn, supported, speak, enable } = useVwrSound()
+// gabung=1: strip & suara panggilan loket dari server (/api/v1/display/queues)
+const { current, menunggu } = useVwrLoket((e, live) => { if (gabung.value && live) speak(teksPanggil(e)) })
 const { jam, detik, tanggal } = useKioskClock()
 
 const AKTIF = ['dipanggil', 'vital selesai', 'dilayani']
@@ -27,13 +28,11 @@ const kedip = (poliId: string) => {
   setTimeout(() => (flashId.value = poliId), 30)
   ft = setTimeout(() => (flashId.value = ''), 3400)
 }
-// gabung=1: dengarkan juga panggilan loket
-const jenis = gabung.value ? ['poli', 'loket'] : ['poli']
-const { latest } = useVwrCalls(jenis, (e, live) => {
+const { latest } = useVwrCalls(['poli'], (e, live) => {
   if (e.type === 'poli') kedip(e.poliId)
   if (live) speak(teksPanggil(e))
 })
-const aktifkan = () => enable(teksPanggil(latest()))
+const aktifkan = () => enable(teksPanggil(latest() || (gabung.value ? current.value : null)))
 onBeforeUnmount(() => clearTimeout(ft))
 const running = 'Harap menunggu di ruang tunggu sampai nomor Anda dipanggil. Siapkan kartu identitas dan kartu BPJS. Terima kasih atas kesabaran Anda.'
 </script>
@@ -51,9 +50,8 @@ const running = 'Harap menunggu di ruang tunggu sampai nomor Anda dipanggil. Sia
         <b v-else>-</b>
       </div>
       <div class="strip-next">
-        <small>Berikutnya ({{ menunggu.length }} menunggu)</small>
-        <span v-for="t in nextLoket" :key="t.id">{{ t.nomor }}</span>
-        <span v-if="!nextLoket.length">-</span>
+        <small>Menunggu di loket</small>
+        <span>{{ menunggu }} nomor</span>
       </div>
     </div>
 
