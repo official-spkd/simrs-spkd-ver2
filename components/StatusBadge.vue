@@ -2,8 +2,8 @@
 // Pewarnaan seragam untuk semua status (kunjungan, antrean, SEP, tagihan, Satu Sehat, reservasi, tiket, penjamin, kanal).
 const props = defineProps<{ value: string | null | undefined }>()
 const MAP: Record<string, string> = {
-  terdaftar: 'b-navy', dilayani: 'b-ok', selesai: 'b-ok', lunas: 'b-ok', dibatalkan: 'b-err',
-  menunggu: 'b-warn', dipanggil: 'b-info', 'vital selesai': 'b-teal', dilewati: 'b-mute',
+  terdaftar: 'b-navy', dilayani: 'b-teal', selesai: 'b-ok', lunas: 'b-ok', dibatalkan: 'b-err',
+  menunggu: 'b-warn', dipanggil: 'b-teal', 'vital selesai': 'b-ok', diperiksa: 'b-teal', dilewati: 'b-mute',
   terbit: 'b-ok', ditolak: 'b-err', 'gagal kirim': 'b-err', gagal: 'b-err',
   antrian: 'b-warn', terkirim: 'b-ok',
   booked: 'b-info', 'check-in': 'b-ok', batal: 'b-err', 'no-show': 'b-mute',

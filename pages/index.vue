@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // GL-02 Beranda per role: ringkasan hari ini
 const { user } = useAuth()
-const { db, billTotals, poli } = useDb()
+const { db, billTotals } = useDb()
 const role = computed(() => user.value?.role as Role)
 const t = todayStr()
 const hari = computed(() => db.visits.filter((v: any) => v.tanggal === t))
@@ -19,10 +19,8 @@ onBeforeUnmount(() => clearInterval(tLoket))
 const pendapatan = computed(() => Object.values(db.bills).flatMap((b: any) => b.payments || []).reduce((s: number, p: any) => s + p.jumlah, 0))
 const gagal = computed(() => db.outbox.filter((o: any) => o.status === 'gagal').length)
 const antri = computed(() => db.outbox.filter((o: any) => o.status === 'antrian').length)
-const mine = computed(() => (user.value?.poliId ? menunggu.value.filter((v: any) => v.poliId === user.value.poliId) : menunggu.value))
 const links: Record<string, { to: string; label: string }[]> = {
   fo: [{ to: '/fo', label: 'Worklist pendaftaran' }, { to: '/fo/antrean', label: 'Pemanggilan antrean loket' }, { to: '/pasien/baru', label: '+ Pasien baru' }, { to: '/fo/reservasi', label: 'Reservasi' }],
-  dokter: [{ to: '/klinis', label: 'Worklist poli' }],
   kasir: [{ to: '/kasir', label: 'Worklist tagihan' }, { to: '/kasir/shift', label: 'Rekap shift' }],
   mgmt: [{ to: '/manajemen', label: 'Dashboard operasional' }, { to: '/manajemen/kunjungan', label: 'Laporan kunjungan' }, { to: '/manajemen/pembatalan', label: 'Laporan pembatalan' }],
   it: [{ to: '/it/integrasi', label: 'Status integrasi' }, { to: '/it/audit', label: 'Audit trail' }, { to: '/it/perangkat', label: 'Perangkat' }],
@@ -32,7 +30,8 @@ const sisaTagihan = computed(() => siapBayar.value.reduce((s: number, v: any) =>
 </script>
 
 <template>
-  <div v-if="user">
+  <BerandaDokter v-if="user && role === 'dokter'" />
+  <div v-else-if="user">
     <PageHead code="GL-02" :role="ROLE_LABEL[role]" :title="`Selamat datang, ${user.nama}`" :subtitle="`Ringkasan hari ini · ${fmtTglPanjang()}`" />
 
     <div class="grid g4">
@@ -41,12 +40,6 @@ const sisaTagihan = computed(() => siapBayar.value.reduce((s: number, v: any) =>
         <div class="kpi"><small>Antrean loket menunggu</small><b>{{ sisaLoket }}</b><span>Hari ini, dari server</span></div>
         <div class="kpi"><small>Menunggu poli</small><b>{{ menunggu.length }}</b><span>Terdaftar, belum dilayani</span></div>
         <div class="kpi"><small>Reservasi check-in</small><b>{{ db.reservations.filter((r: any) => r.tanggal === t && r.status === 'booked').length }}</b><span>Pasien belum hadir</span></div>
-      </template>
-      <template v-else-if="role === 'dokter'">
-        <div class="kpi"><small>Pasien menunggu</small><b>{{ mine.length }}</b><span>{{ user.poliId ? poli(user.poliId)?.nama : 'Semua poli' }}</span></div>
-        <div class="kpi"><small>Sedang dilayani</small><b>{{ dilayani.length }}</b><span>Hari ini</span></div>
-        <div class="kpi"><small>Selesai</small><b>{{ aktif.filter((v: any) => ['selesai', 'lunas'].includes(v.status)).length }}</b><span>Kunjungan ditutup</span></div>
-        <div class="kpi"><small>Alergi tercatat</small><b>{{ menunggu.filter((v: any) => db.patients.find((p: any) => p.id === v.patientId)?.alergi).length }}</b><span>Pasien menunggu dengan alergi</span></div>
       </template>
       <template v-else-if="role === 'kasir'">
         <div class="kpi"><small>Tagihan belum bayar</small><b>{{ siapBayar.length }}</b><span>Siap bayar</span></div>

@@ -1,20 +1,25 @@
 <script setup lang="ts">
 // KL-03 Vital Sign & Pengkajian Awal
 const props = defineProps<{ visitId: string; editable: boolean }>()
-const emit = defineEmits(['next'])
+const emit = defineEmits(['next', 'back'])
 const { db, visit, patient, saveVitals, latestVitals } = useDb()
 const toast = useToast()
 
 const versions = computed(() => db.vitals[props.visitId] || [])
 const latest = computed(() => latestVitals(props.visitId))
-const blank = () => ({ td: '', nadi: '', rr: '', suhu: '', spo2: '', tb: '', bb: '', kesadaran: 'Compos mentis', nyeri: 0, risikoJatuh: 'tidak', keluhan: visit(props.visitId)?.keluhan || '', alergi: patient(visit(props.visitId).patientId).alergi || '' })
+// datetime-local butuh waktu lokal "YYYY-MM-DDTHH:mm"
+const lokal = (iso?: string) => {
+  const d = iso ? new Date(iso) : new Date()
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1, 2)}-${pad(d.getDate(), 2)}T${pad(d.getHours(), 2)}:${pad(d.getMinutes(), 2)}`
+}
+const blank = () => ({ td: '', nadi: '', rr: '', suhu: '', spo2: '', tb: '', bb: '', kesadaran: 'Compos mentis', nyeri: 0, risikoJatuh: 'tidak', waktu: lokal(), keluhan: visit(props.visitId)?.keluhan || '', alergi: patient(visit(props.visitId).patientId).alergi || '' })
 const f = reactive<any>(blank())
 const alasan = ref('')
 const err = ref('')
 
 const load = () => {
   const l = latest.value
-  Object.assign(f, l ? { ...blank(), ...l } : blank())
+  Object.assign(f, l ? { ...blank(), ...l, waktu: lokal(l.waktu || l.at) } : blank())
   alasan.value = ''
 }
 load()
@@ -29,19 +34,21 @@ const bmi = computed(() => {
   const tb = num(f.tb), bb = num(f.bb)
   return tb > 0 && bb > 0 ? Math.round((bb / Math.pow(tb / 100, 2)) * 10) / 10 : null
 })
+// pesan abnormal: '' = normal
 const abn = computed(() => {
   const sd = sistolDiastol.value
   const nadi = num(f.nadi), rr = num(f.rr), suhu = num(f.suhu), spo2 = num(f.spo2)
+  const atas = 'Di atas rentang rujukan · perlu evaluasi', bawah = 'Di bawah rentang rujukan · perlu evaluasi'
   return {
-    td: !!sd && (sd[0] >= 140 || sd[1] >= 90 || sd[0] <= 90 || sd[1] <= 60),
-    nadi: !isNaN(nadi) && (nadi > 100 || nadi < 60),
-    rr: !isNaN(rr) && (rr > 20 || rr < 12),
-    suhu: !isNaN(suhu) && (suhu >= 37.5 || suhu < 36),
-    spo2: !isNaN(spo2) && spo2 < 95,
-    bmi: bmi.value !== null && (bmi.value < 18.5 || bmi.value > 25),
+    td: !sd ? '' : sd[0] >= 140 || sd[1] >= 90 ? atas : sd[0] <= 90 || sd[1] <= 60 ? bawah : '',
+    nadi: isNaN(nadi) ? '' : nadi > 100 ? atas : nadi < 60 ? bawah : '',
+    rr: isNaN(rr) ? '' : rr > 20 ? atas : rr < 12 ? bawah : '',
+    suhu: isNaN(suhu) ? '' : suhu >= 37.5 ? atas : suhu < 36 ? bawah : '',
+    spo2: !isNaN(spo2) && spo2 < 95 ? bawah : '',
+    bmi: bmi.value === null ? '' : bmi.value > 25 ? atas : bmi.value < 18.5 ? bawah : '',
   }
 })
-const bmiLabel = computed(() => (bmi.value === null ? '-' : bmi.value < 18.5 ? 'Kurang' : bmi.value > 25 ? 'Lebih' : 'Normal'))
+const NYERI = ['tidak nyeri', 'ringan', 'ringan', 'ringan', 'sedang', 'sedang', 'sedang', 'berat', 'berat', 'berat', 'sangat berat']
 
 const isCorrection = computed(() => versions.value.length > 0)
 const validate = () => {
@@ -50,75 +57,88 @@ const validate = () => {
     if (isNaN(num(f[k]))) return `${lbl} wajib diisi`
   }
   if (num(f.spo2) > 100) return 'SpO2 maksimal 100'
-  if (num(f.nyeri) < 0 || num(f.nyeri) > 10) return 'Skala nyeri 0–10'
+  if (!String(f.keluhan || '').trim()) return 'Keluhan utama wajib diisi'
   if (isCorrection.value && !alasan.value.trim()) return 'Koreksi wajib menyertakan alasan'
   return ''
 }
 const simpan = (lanjut = false) => {
   err.value = validate()
-  if (err.value) { toast.err(err.value); return }
-  const data = { ...f, nadi: num(f.nadi), rr: num(f.rr), suhu: num(f.suhu), spo2: num(f.spo2), tb: num(f.tb) || null, bb: num(f.bb) || null, nyeri: num(f.nyeri), bmi: bmi.value }
+  if (err.value) { toast.err(err.value); return false }
+  const data = { ...f, nadi: num(f.nadi), rr: num(f.rr), suhu: num(f.suhu), spo2: num(f.spo2), tb: num(f.tb) || null, bb: num(f.bb) || null, nyeri: num(f.nyeri), bmi: bmi.value, waktu: new Date(f.waktu).toISOString() }
   const ok = toast.attempt(() => saveVitals(props.visitId, data, alasan.value), isCorrection.value ? 'Koreksi vital sign tersimpan sebagai versi baru' : 'Vital sign tersimpan — status antrean: vital selesai')
   if (ok) { alasan.value = ''; if (lanjut) emit('next') }
+  return !!ok
 }
+// "Lanjut ke SOAP": simpan dulu bila ada isian baru, lalu pindah tab
+const berubah = computed(() => {
+  const l = latest.value
+  if (!l) return !!(f.td || f.nadi || f.rr || f.suhu || f.spo2)
+  return ['td', 'nadi', 'rr', 'suhu', 'spo2', 'tb', 'bb', 'kesadaran', 'nyeri', 'risikoJatuh', 'keluhan', 'alergi'].some((k) => String(f[k] ?? '') !== String(l[k] ?? ''))
+})
+const lanjut = () => (props.editable && berubah.value ? simpan(true) : emit('next'))
 </script>
 
 <template>
-  <div class="stack">
-    <div v-if="latest" class="alert info"><span>Menampilkan versi {{ latest.ver }} (terakhir). Menyimpan lagi dihitung sebagai koreksi dan wajib beralasan.</span></div>
-    <div class="card">
-      <h2>Tanda vital</h2>
-      <div class="form-grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
-        <div class="field"><label class="req" for="v-td">Tekanan darah (mmHg)</label><input id="v-td" v-model="f.td" class="input" :class="{ err: abn.td }" :disabled="!editable" placeholder="120/80" inputmode="numeric"><span v-if="abn.td" class="err-text">Di luar batas normal</span></div>
-        <div class="field"><label class="req" for="v-nadi">Nadi (x/mnt)</label><input id="v-nadi" v-model="f.nadi" class="input" :class="{ err: abn.nadi }" :disabled="!editable" type="number" inputmode="numeric"><span v-if="abn.nadi" class="err-text">Abnormal (&gt;100 / &lt;60)</span></div>
-        <div class="field"><label class="req" for="v-rr">RR (x/mnt)</label><input id="v-rr" v-model="f.rr" class="input" :class="{ err: abn.rr }" :disabled="!editable" type="number" inputmode="numeric"><span v-if="abn.rr" class="err-text">Abnormal (&gt;20 / &lt;12)</span></div>
-        <div class="field"><label class="req" for="v-suhu">Suhu (°C)</label><input id="v-suhu" v-model="f.suhu" class="input" :class="{ err: abn.suhu }" :disabled="!editable" type="number" step="0.1" inputmode="decimal"><span v-if="abn.suhu" class="err-text">Abnormal (≥37,5 / &lt;36)</span></div>
-        <div class="field"><label class="req" for="v-spo2">SpO2 (%)</label><input id="v-spo2" v-model="f.spo2" class="input" :class="{ err: abn.spo2 }" :disabled="!editable" type="number" inputmode="numeric"><span v-if="abn.spo2" class="err-text">Abnormal (&lt;95)</span></div>
-        <div class="field"><label for="v-tb">Tinggi badan (cm)</label><input id="v-tb" v-model="f.tb" class="input" :disabled="!editable" type="number" inputmode="numeric"></div>
-        <div class="field"><label for="v-bb">Berat badan (kg)</label><input id="v-bb" v-model="f.bb" class="input" :disabled="!editable" type="number" step="0.1" inputmode="decimal"></div>
-        <div class="field"><label>BMI (otomatis)</label>
-          <div class="input" :class="{ err: abn.bmi }" style="display:flex;align-items:center;background:#f0f4f6" :style="abn.bmi ? 'color:var(--err);font-weight:700' : ''">{{ bmi ?? '-' }} <span class="muted small" style="margin-left:8px">{{ bmiLabel }}</span></div>
+  <div class="kl-col">
+    <div class="kl-cols half">
+      <div class="panel">
+        <h2>Tanda vital</h2>
+        <div class="form-grid">
+          <div class="field"><label class="req" for="v-td" :style="abn.td ? 'color:var(--err)' : ''">Tekanan darah · mmHg</label><input id="v-td" v-model="f.td" class="input" :class="{ err: abn.td }" :style="abn.td ? 'color:var(--err)' : ''" :disabled="!editable" placeholder="120/80" inputmode="numeric"><span v-if="abn.td" class="err-text">{{ abn.td }}</span></div>
+          <div class="field"><label class="req" for="v-nadi" :style="abn.nadi ? 'color:var(--err)' : ''">Nadi · bpm</label><input id="v-nadi" v-model="f.nadi" class="input" :class="{ err: abn.nadi }" :disabled="!editable" type="number" inputmode="numeric"><span v-if="abn.nadi" class="err-text">{{ abn.nadi }}</span></div>
+          <div class="field"><label class="req" for="v-rr" :style="abn.rr ? 'color:var(--err)' : ''">RR · x/menit</label><input id="v-rr" v-model="f.rr" class="input" :class="{ err: abn.rr }" :disabled="!editable" type="number" inputmode="numeric"><span v-if="abn.rr" class="err-text">{{ abn.rr }}</span></div>
+          <div class="field"><label class="req" for="v-suhu" :style="abn.suhu ? 'color:var(--err)' : ''">Suhu · °C</label><input id="v-suhu" v-model="f.suhu" class="input" :class="{ err: abn.suhu }" :disabled="!editable" type="number" step="0.1" inputmode="decimal"><span v-if="abn.suhu" class="err-text">{{ abn.suhu }}</span></div>
+          <div class="field"><label class="req" for="v-spo2" :style="abn.spo2 ? 'color:var(--err)' : ''">SpO₂ · %</label><input id="v-spo2" v-model="f.spo2" class="input" :class="{ err: abn.spo2 }" :disabled="!editable" type="number" inputmode="numeric"><span v-if="abn.spo2" class="err-text">{{ abn.spo2 }}</span></div>
+          <div class="field"><label for="v-tb">Tinggi badan · cm</label><input id="v-tb" v-model="f.tb" class="input" :disabled="!editable" type="number" inputmode="numeric"></div>
+          <div class="field"><label for="v-bb">Berat badan · kg</label><input id="v-bb" v-model="f.bb" class="input" :disabled="!editable" type="number" step="0.1" inputmode="decimal"></div>
+          <div class="field"><label :style="abn.bmi ? 'color:var(--err)' : ''">BMI · otomatis</label>
+            <div class="input" :class="{ err: abn.bmi }" style="display:flex;align-items:center;background:#f5f8fa" :style="abn.bmi ? 'color:var(--err)' : ''">{{ bmi === null ? '-' : String(bmi).replace('.', ',') + ' kg/m²' }}</div>
+          </div>
+        </div>
+        <div><span class="badge b-teal">BMI dihitung dari TB dan BB</span></div>
+      </div>
+
+      <div class="kl-col">
+        <div class="panel">
+          <h2>Pengkajian awal</h2>
+          <div class="form-grid">
+            <div class="field"><label for="v-kes">Kesadaran</label>
+              <select id="v-kes" v-model="f.kesadaran" class="select" :disabled="!editable">
+                <option>Compos mentis</option><option>Apatis</option><option>Somnolen</option><option>Sopor</option><option>Koma</option>
+              </select>
+            </div>
+            <div class="field"><label for="v-nyeri">Skala nyeri · 0–10</label>
+              <select id="v-nyeri" v-model.number="f.nyeri" class="select" :disabled="!editable">
+                <option v-for="(l, n) in NYERI" :key="n" :value="n">{{ n }} · {{ l }}</option>
+              </select>
+            </div>
+            <div class="field"><label for="v-jatuh">Risiko jatuh</label>
+              <select id="v-jatuh" v-model="f.risikoJatuh" class="select" :disabled="!editable"><option value="tidak">Tidak</option><option value="ya">Ya</option></select>
+            </div>
+            <div class="field"><label for="v-waktu">Waktu pengkajian</label><input id="v-waktu" v-model="f.waktu" class="input" type="datetime-local" :disabled="!editable"></div>
+            <div class="field full"><label class="req" for="v-kel">Keluhan utama</label><textarea id="v-kel" v-model="f.keluhan" class="textarea" :disabled="!editable" /></div>
+            <div class="field full"><label for="v-al">Riwayat alergi</label><input id="v-al" v-model="f.alergi" class="input" :disabled="!editable" placeholder="mis. Penisilin · ruam kulit"><span class="hint">Perubahan alergi langsung memperbarui banner pasien.</span></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>Versi pengkajian</h2>
+          <p v-if="latest">Versi {{ latest.ver }} · {{ latest.by }} · {{ fmtJam(latest.at) }} · Tersimpan lokal</p>
+          <p v-else class="muted">Belum ada versi tersimpan.</p>
+          <div v-if="versions.length > 1" class="muted" style="font-size: 12px">
+            <div v-for="x in [...versions].reverse().slice(1)" :key="x.ver">Versi {{ x.ver }} · {{ x.by }} · {{ fmtJam(x.at) }}<template v-if="x.alasan"> · alasan: {{ x.alasan }}</template></div>
+          </div>
+          <div class="field"><label :class="{ req: isCorrection && editable }" for="v-alasan">Alasan koreksi · wajib bila mengubah data tersimpan</label><input id="v-alasan" v-model="alasan" class="input" :disabled="!editable || !isCorrection" placeholder="Tuliskan alasan untuk membuat versi baru"></div>
+          <div class="guide"><AppIcon name="info" :size="18" /> Nilai abnormal ditandai merah. Koreksi tidak menimpa versi sebelumnya dan selalu tercatat audit.</div>
         </div>
       </div>
     </div>
 
-    <div class="card">
-      <h2>Pengkajian awal</h2>
-      <div class="form-grid">
-        <div class="field"><label for="v-kes">Kesadaran</label>
-          <select id="v-kes" v-model="f.kesadaran" class="select" :disabled="!editable">
-            <option>Compos mentis</option><option>Apatis</option><option>Somnolen</option><option>Sopor</option><option>Koma</option>
-          </select>
-        </div>
-        <div class="field"><label for="v-nyeri">Skala nyeri: {{ f.nyeri }} / 10</label><input id="v-nyeri" v-model.number="f.nyeri" type="range" min="0" max="10" step="1" :disabled="!editable" style="min-height:38px;accent-color:var(--teal)"></div>
-        <div class="field"><span class="lbl">Risiko jatuh</span>
-          <div class="seg"><button type="button" :class="{ on: f.risikoJatuh === 'tidak' }" :disabled="!editable" @click="f.risikoJatuh = 'tidak'">Tidak</button><button type="button" :class="{ on: f.risikoJatuh === 'ya' }" :disabled="!editable" @click="f.risikoJatuh = 'ya'">Ya</button></div>
-        </div>
-        <div class="field"><label for="v-al">Riwayat alergi</label><input id="v-al" v-model="f.alergi" class="input" :disabled="!editable" placeholder="mis. Penisilin, Seafood"><span class="hint">Perubahan memperbarui Patient Banner.</span></div>
-        <div class="field full"><label for="v-kel">Keluhan utama</label><textarea id="v-kel" v-model="f.keluhan" class="textarea" :disabled="!editable" /></div>
-        <div v-if="isCorrection && editable" class="field full"><label class="req" for="v-alasan">Alasan koreksi</label><input id="v-alasan" v-model="alasan" class="input" placeholder="mis. salah ketik tekanan darah"></div>
-      </div>
-      <p v-if="err" class="err-text" style="margin-top:8px">{{ err }}</p>
-      <div class="row" style="margin-top:16px">
-        <button class="btn btn-primary" :disabled="!editable" @click="simpan(false)">{{ isCorrection ? 'Simpan koreksi' : 'Simpan' }}</button>
-        <button class="btn" :disabled="!editable" @click="simpan(true)">Simpan & lanjut ke SOAP</button>
-        <button class="btn btn-ghost" @click="emit('next')">Lanjut ke SOAP</button>
-      </div>
-    </div>
-
-    <div v-if="versions.length" class="card">
-      <h2>Riwayat versi</h2>
-      <div class="table-wrap">
-        <table class="tbl rtable">
-          <thead><tr><th>Versi</th><th>Waktu</th><th>TD</th><th>Nadi</th><th>RR</th><th>Suhu</th><th>SpO2</th><th>Oleh</th><th>Alasan</th></tr></thead>
-          <tbody>
-            <tr v-for="x in [...versions].reverse()" :key="x.ver">
-              <td data-label="Versi">v{{ x.ver }}</td><td data-label="Waktu">{{ fmtJam(x.at) }}</td><td data-label="TD">{{ x.td }}</td><td data-label="Nadi">{{ x.nadi }}</td>
-              <td data-label="RR">{{ x.rr }}</td><td data-label="Suhu">{{ x.suhu }}</td><td data-label="SpO2">{{ x.spo2 }}</td><td data-label="Oleh">{{ x.by }}</td><td data-label="Alasan">{{ x.alasan || '-' }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+    <p v-if="err" class="err-text">{{ err }}</p>
+    <div class="kl-actions">
+      <button class="btn" @click="emit('back')">Kembali</button>
+      <button class="btn" :disabled="!editable" @click="simpan(false)">{{ isCorrection ? 'Simpan koreksi' : 'Simpan' }}</button>
+      <button class="btn btn-primary" @click="lanjut">Lanjut ke SOAP</button>
     </div>
   </div>
 </template>

@@ -1,18 +1,30 @@
 <script setup lang="ts">
-// Patient Banner: nama, No. RM, NIK, umur/JK, alergi, penjamin — tampil di semua halaman yang menyentuh satu pasien.
+// Patient Banner: inisial, nama, RM · NIK · umur/JK, episode kunjungan, status kunjungan/penjamin/alergi — tampil di semua halaman yang menyentuh satu pasien.
 const props = defineProps<{ patient: any; visit?: any }>()
+const { poli, doctor } = useDb()
 const penjamin = computed(() => props.visit?.penjamin || props.patient?.penjamin)
+const nikTersamar = computed(() => (props.patient?.nik ? props.patient.nik.slice(0, 4) + '••••••••' + props.patient.nik.slice(-4) : '-'))
+const jk = computed(() => (props.patient?.jk === 'L' ? 'Laki-laki' : props.patient?.jk === 'P' ? 'Perempuan' : props.patient?.jk || '-'))
+const episode = computed(() => {
+  const v = props.visit
+  if (!v) return ''
+  const tgl = fmtTglPanjang(v.tanggal).replace(/^\w+, /, '')
+  return `${v.noKunjungan}  •  ${tgl}  •  ${v.poliNama || poli(v.poliId)?.nama || '-'} / ${v.dokterNama || doctor(v.doctorId)?.nama || '-'}`
+})
 </script>
 <template>
   <div v-if="patient" class="pbanner" :class="{ 'alert-al': patient.alergi }">
-    <div>
+    <div class="pb-ini" aria-hidden="true">{{ inisial(patient.nama) }}</div>
+    <div class="pb-main">
       <div class="nm">{{ patient.nama }}</div>
-      <div class="muted small">{{ patient.rm }}<template v-if="visit"> · {{ visit.noKunjungan }}</template></div>
+      <div class="pb-l1">RM {{ patient.rm }}  •  NIK {{ nikTersamar }}  •  {{ patient.tglLahir ? umur(patient.tglLahir) + ' tahun' : '-' }} / {{ jk }}</div>
+      <div v-if="episode" class="pb-l2">{{ episode }}</div>
+      <div v-if="$slots.default" class="pb-extra"><slot /></div>
     </div>
-    <div class="f"><small>NIK</small><b>{{ maskNik(patient.nik) }}</b></div>
-    <div class="f"><small>Umur / JK</small><b>{{ umur(patient.tglLahir) }} th / {{ patient.jk }}</b></div>
-    <div class="f"><small>Penjamin</small><StatusBadge :value="penjamin" /></div>
-    <div class="f"><small>Alergi</small><span v-if="patient.alergi" class="alergi-tag">{{ patient.alergi }}</span><b v-else class="muted">Tidak ada</b></div>
-    <slot />
+    <div class="pb-status">
+      <span v-if="visit" class="badge" :class="visit.status === 'dilayani' ? 'b-teal' : visit.status === 'dibatalkan' ? 'b-err' : visit.status === 'terdaftar' ? 'b-navy' : 'b-ok'">Kunjungan: {{ visit.status }}</span>
+      <span class="badge b-navy">Penjamin: {{ penjamin || '-' }}</span>
+      <span class="badge" :class="patient.alergi ? 'b-err' : 'b-mute'">Alergi: {{ patient.alergi || 'tidak ada' }}</span>
+    </div>
   </div>
 </template>

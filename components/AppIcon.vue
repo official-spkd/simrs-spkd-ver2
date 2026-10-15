@@ -25,6 +25,7 @@ const P: Record<string, string> = {
   check: 'M5 12l5 5 9-10',
   print: 'M6 9V3h12v6M6 18H4v-8h16v8h-2M8 14h8v7H8z',
   x: 'M6 6l12 12M18 6L6 18',
+  info: 'M12 21a9 9 0 100-18 9 9 0 000 18zM12 11v5M12 8h.01',
 }
 </script>
 <template>

@@ -7,6 +7,7 @@ export type Role = 'fo' | 'dokter' | 'kasir' | 'mgmt' | 'it' | 'superadmin'
 export type Penjamin = 'Umum' | 'BPJS' | 'Asuransi'
 
 const KEY = 'spkd-db-v1'
+export const TASK_BPJS: Record<number, string> = { 1: 'Mulai Tunggu Admisi', 2: 'Mulai Layani Admisi', 3: 'Selesai Admisi', 4: 'Mulai Tunggu Poli', 5: 'Mulai Layani Dokter', 6: 'Mulai Tunggu Farmasi', 7: 'Selesai Penyerahan Obat' }
 let _db: any = null
 let _loading = false
 
@@ -416,6 +417,17 @@ export function useDb() {
   }
 
   // ---------- poliklinik ----------
+  /** Task ID BPJS Antrol (demo lokal, bukan API nyata): 3 saat terdaftar, 4 dipanggil, 5 mulai periksa, 6 resep ke farmasi. */
+  const catatTask = (v: any, n: number) => {
+    if (v.penjamin !== 'BPJS') return
+    v.taskBpjs = v.taskBpjs || {}
+    if (!v.taskBpjs[n]) v.taskBpjs[n] = nowIso()
+  }
+  const taskBpjs = (v: any) => {
+    if (v.penjamin !== 'BPJS') return { n: 0, label: 'Tidak berlaku · non-BPJS', cls: 'b-navy' }
+    const n = Math.max(3, ...Object.keys(v.taskBpjs || {}).map(Number))
+    return { n, label: `Task ${n} · ${TASK_BPJS[n]}`, cls: n === 3 ? 'b-warn' : 'b-ok' }
+  }
   const poliQueue = (poliId: string | null, doctorId: string | null) =>
     db.visits.filter((v: any) => v.tanggal === todayStr() && v.status !== 'dibatalkan' && (!poliId || v.poliId === poliId) && (!doctorId || v.doctorId === doctorId))
   const callPoli = (visitId: string) => {
@@ -423,6 +435,7 @@ export function useDb() {
     if (v.status === 'dibatalkan') throw new Error('Kunjungan dibatalkan')
     v.antreanPoli.status = v.antreanPoli.status === 'vital selesai' ? 'vital selesai' : 'dipanggil'
     if (!v.jamPanggil) v.jamPanggil = nowIso()
+    catatTask(v, 4)
     logQ('poli', v.antreanPoli.nomor, 'panggil', { ruang: poli(v.poliId).ruang, dokter: doctor(v.doctorId).nama, poliId: v.poliId })
   }
   const recallPoli = (visitId: string) => {
@@ -438,6 +451,8 @@ export function useDb() {
       v.jamMulai = nowIso()
       if (!v.jamPanggil) v.jamPanggil = nowIso()
       if (v.antreanPoli.status !== 'vital selesai') v.antreanPoli.status = 'dilayani'
+      catatTask(v, 4)
+      catatTask(v, 5)
       enqueue('Encounter', v.noKunjungan)
       audit('mulai periksa', v.noKunjungan)
     }
@@ -481,7 +496,7 @@ export function useDb() {
     if (getSoap(visitId).signed) throw new Error('SOAP sudah ditandatangani; order terkunci')
     db.orders[visitId] = (db.orders[visitId] || []).filter((o: any) => o.id !== id)
   }
-  const closeVisit = (visitId: string, f: { kondisiPulang: string; caraPulang: string; tglKontrol?: string }) => {
+  const closeVisit = (visitId: string, f: { kondisiPulang: string; caraPulang: string; tglKontrol?: string; doctorIdKontrol?: string }) => {
     const v = visit(visitId)
     const s = getSoap(visitId)
     if (v.status !== 'dilayani') throw new Error('Kunjungan harus berstatus dilayani')
@@ -490,11 +505,12 @@ export function useDb() {
     if (f.caraPulang === 'kontrol ulang' && !f.tglKontrol) throw new Error('Tanggal kontrol wajib diisi')
     v.status = 'selesai'; v.antreanPoli.status = 'selesai'; v.jamSelesai = nowIso()
     v.kondisiPulang = f.kondisiPulang; v.caraPulang = f.caraPulang; v.tglKontrol = f.tglKontrol || ''
+    if ((db.orders[visitId] || []).some((o: any) => o.jenis === 'resep')) catatTask(v, 6)
     ensureBill(visitId)
     enqueue('Encounter', v.noKunjungan)
     audit('tutup kunjungan', v.noKunjungan)
     if (f.caraPulang === 'kontrol ulang' && f.tglKontrol) {
-      createReservation({ patientId: v.patientId, poliId: v.poliId, doctorId: v.doctorId, tanggal: f.tglKontrol, kanal: 'loket' })
+      createReservation({ patientId: v.patientId, poliId: v.poliId, doctorId: f.doctorIdKontrol || v.doctorId, tanggal: f.tglKontrol, kanal: 'loket' })
     }
     return v
   }
@@ -624,7 +640,7 @@ export function useDb() {
     takeLoketTicket, loketMenunggu, loketAktif, callNextLoket, recallLoket, skipLoket, finishLoket,
     registerVisit, processSep, retrySep, cekKepesertaan, cancelVisit,
     createReservation, cancelReservation, rescheduleReservation, checkInReservation,
-    poliQueue, callPoli, recallPoli, skipPoli, startExam, saveVitals, latestVitals, getSoap, signSoap, addOrder, removeOrder, closeVisit,
+    poliQueue, taskBpjs, callPoli, recallPoli, skipPoli, startExam, saveVitals, latestVitals, getSoap, signSoap, addOrder, removeOrder, closeVisit,
     hargaDari, ensureBill, billItems, billTotals, tagihanList, setSkema, addManualItem, setDiskon, finalizeBill, pay, currentShift, closeShift, shiftSummary,
     retryOutbox, flushOutbox, resetDemo,
   }

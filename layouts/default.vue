@@ -13,7 +13,10 @@ const unread = computed(() => db.notifications.filter((n: any) => !n.dibaca).len
 const ssOk = computed(() => db.integrasi.satuSehat.status === 'online')
 const canSearch = computed(() => ['fo', 'dokter', 'kasir', 'it', 'superadmin'].includes(user.value?.role))
 const roleLabel = computed(() => (user.value ? ROLE_LABEL[user.value.role as Role] : ''))
-const unitAktif = computed(() => user.value?.unit || '')
+// Dokter / Perawat: unit aktif = poli penugasan dokter akun
+const { poliAktif } = useDokterQueue()
+const unitAktif = computed(() => user.value?.unit || (user.value?.role === 'dokter' && poliAktif.value ? 'Poli ' + poliAktif.value.nama : ''))
+const navAktif = (n: NavItem) => !!n.match && new RegExp(n.match).test(route.path)
 
 watch(() => route.fullPath, () => { open.value = false; notifOpen.value = false })
 const openSearch = () => { if (canSearch.value) { searchOpen.value = true } }
@@ -28,7 +31,9 @@ onMounted(() => {
   onBeforeUnmount(() => { window.removeEventListener('keydown', f); clearInterval(timer) })
 })
 const crumbs = computed(() => {
-  const cur = nav.value.find((n) => n.to === route.path) || [...nav.value].reverse().find((n) => n.to !== '/' && route.path.startsWith(n.to))
+  const cur = nav.value.find((n) => n.to === route.path) || nav.value.find(navAktif) || [...nav.value].reverse().find((n) => n.to !== '/' && route.path.startsWith(n.to))
+  // Dokter / Perawat: format breadcrumb sesuai Figma (Rawat jalan / Dokter / Perawat / Halaman)
+  if (user.value?.role === 'dokter') return ['Rawat jalan', 'Dokter / Perawat', cur?.label || 'Halaman']
   return ['Rawat jalan', cur?.label || 'Halaman']
 })
 const readAll = () => { db.notifications.forEach((n: any) => (n.dibaca = true)) }
@@ -40,7 +45,7 @@ const readAll = () => { db.notifications.forEach((n: any) => (n.dibaca = true)) 
       <div class="brand"><img :src="logo" alt="SIMRS SPKD" width="125" height="48" /></div>
       <div class="role-tag">{{ ROLE_SHORT[user.role as Role] }}</div>
       <nav class="nav">
-        <NuxtLink v-for="n in nav" :key="n.to" :to="n.to" :exact="n.to === '/'"><AppIcon :name="n.icon" /> {{ n.label }}</NuxtLink>
+        <NuxtLink v-for="n in nav" :key="n.to" :to="n.to" :exact="n.to === '/'" :class="{ 'router-link-active': navAktif(n) }"><AppIcon :name="n.icon" /> {{ n.label }}</NuxtLink>
       </nav>
       <div class="unit-card">
         <small>UNIT AKTIF</small>

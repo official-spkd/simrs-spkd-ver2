@@ -8,9 +8,10 @@ export const ROLE_LABEL: Record<Role, string> = {
   it: 'IT Support',
   superadmin: 'Superadmin',
 }
-export const ROLE_SHORT: Record<Role, string> = { fo: 'FO / FRONT OFFICE / ADMIN', dokter: 'DOKTER / PERAWAT', kasir: 'KASIR', mgmt: 'MANAGEMENT RS', it: 'IT SUPPORT', superadmin: 'SUPERADMIN' }
+export const ROLE_SHORT: Record<Role, string> = { fo: 'FO / FRONT OFFICE / ADMIN', dokter: 'KL / DOKTER / PERAWAT', kasir: 'KASIR', mgmt: 'MANAGEMENT RS', it: 'IT SUPPORT', superadmin: 'SUPERADMIN' }
 
-export interface NavItem { label: string; to: string; icon: string }
+/** `match`: regex path tambahan agar item tetap aktif di halaman turunan (mis. /klinis/:id → Workspace pasien). */
+export interface NavItem { label: string; to: string; icon: string; match?: string }
 export const NAV: Record<Role, NavItem[]> = {
   fo: [
     { label: 'Beranda', to: '/', icon: 'home' },
@@ -23,8 +24,10 @@ export const NAV: Record<Role, NavItem[]> = {
   ],
   dokter: [
     { label: 'Beranda', to: '/', icon: 'home' },
-    { label: 'Worklist poli', to: '/klinis', icon: 'stethoscope' },
-    { label: 'Data pasien', to: '/pasien', icon: 'users' },
+    { label: 'Worklist poli', to: '/klinis', icon: 'grid' },
+    { label: 'Workspace pasien', to: '/klinis/workspace', icon: 'clipboard', match: '^/klinis/(?!riwayat$)[^/]+$' },
+    { label: 'Riwayat kunjungan', to: '/klinis/riwayat', icon: 'users' },
+    { label: 'Data pasien · baca', to: '/pasien', icon: 'calendar' },
   ],
   kasir: [
     { label: 'Beranda', to: '/', icon: 'home' },
