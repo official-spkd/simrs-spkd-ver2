@@ -1,8 +1,8 @@
 // Manajemen akun & role di backend (/api/v1/users, /api/v1/roles) — khusus superadmin.
 
 export interface DoctorProfile { poli: { id: string; name: string; prefix_code: string; room: string } | null; sip_number: string; str_number: string }
-export interface ApiUser { id: string; name: string; nip: string; email: string; role: string; is_active: boolean; created_at: string; updated_at?: string; doctor_profile?: DoctorProfile }
-/** Wajib untuk role doctor saat register / ganti role; ditolak server untuk role lain. Pada PUT kirim yang berubah saja. */
+export interface ApiUser { id: string; name: string; nip: string; email: string; role: string; is_active: boolean; created_at: string; updated_at?: string; doctor_id?: string; doctor_profile?: DoctorProfile }
+/** Wajib untuk role doctor saat ganti role; ditolak server untuk role lain. Pada PUT kirim yang berubah saja. */
 export interface DoctorFields { poli_id?: string; sip_number?: string; str_number?: string }
 export interface ApiRole { id: string; name: string; display_name: string; description: string; is_system: boolean }
 
@@ -19,7 +19,8 @@ export function useUsers() {
     apiPage<ApiUser>('/api/v1/users', {
       query: { search: q.search?.trim(), role: q.role, is_active: q.status === '' ? '' : q.status === 'aktif', page: q.page || 1, limit: q.limit || 20 },
     })
-  const create = (f: { name: string; nip: string; email: string; password: string; role: string } & DoctorFields) =>
+  /** Role doctor: wajib doctor_id (ID master dokter /doctors). */
+  const create = (f: { name: string; nip: string; email: string; password: string; role: string; doctor_id?: string }) =>
     api<ApiUser>('/api/v1/auth/register', { method: 'POST', body: f })
   const update = (id: string, f: { name: string; nip: string; email: string } & DoctorFields) =>
     api<ApiUser>(`/api/v1/users/${id}`, { method: 'PUT', body: f })

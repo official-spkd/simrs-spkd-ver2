@@ -76,17 +76,38 @@ const loadPoli = async () => {
     const [p, d] = await Promise.all([usePolis().all(), useDoctors().all({ is_active: true })])
     poliOpsi.value = p.filter((x) => x.is_active)
     dokterOpsi.value = d
-    // ubah user: tandai dokter master yang SIP-nya sama
+    // ubah user: dokter master milik user ini (doctor_id), cadangan lewat SIP
     if (!form.doctorId && form.sip_number) form.doctorId = d.find((x) => x.sip_number === form.sip_number)?.id || ''
+    else isiDariDokter()
   } catch (e: any) { formErr.value = `Gagal memuat poli/dokter: ${e.message}` }
 }
-watch(isDokter, (v) => { if (v && show.value && !poliOpsi.value.length) loadPoli() })
-const dokterPoli = computed(() => dokterOpsi.value.filter((d) => !form.poli_id || d.poli?.id === form.poli_id))
-// pilih dokter master → isi SIP/STR dan poli-nya
-watch(() => form.doctorId, (id) => {
-  const d = dokterOpsi.value.find((x) => x.id === id)
-  if (d) { form.sip_number = d.sip_number; form.str_number = d.str_number; form.poli_id = d.poli?.id || form.poli_id }
+// master dokter yang sudah punya akun (user.doctor_id) — satu data dokter hanya boleh dipakai satu akun
+const terpakai = ref(new Set<string>())
+const loadTerpakai = async () => {
+  const ids = new Set<string>()
+  try {
+    for (let page = 1; ; page++) {
+      const r = await svc.list({ role: DOKTER, status: '', page, limit: 100 })
+      for (const u of r.data) if (u.doctor_id && u.id !== form.id) ids.add(u.doctor_id)
+      if (!r.pagination?.has_next_page) break
+    }
+    terpakai.value = ids
+  } catch (e: any) { formErr.value = `Gagal memuat user dokter: ${e.message}` }
+}
+watch(isDokter, (v) => {
+  if (!v || !show.value) return
+  if (!poliOpsi.value.length) loadPoli()
+  loadTerpakai()
 })
+const dokterPoli = computed(() => dokterOpsi.value.filter((d) =>
+  (!form.poli_id || d.poli?.id === form.poli_id) && (d.id === form.doctorId || !terpakai.value.has(d.id))))
+// pilih dokter master → isi SIP/STR dan poli-nya
+const isiDariDokter = () => {
+  const d = dokterOpsi.value.find((x) => x.id === form.doctorId)
+  if (d) { form.sip_number = d.sip_number; form.str_number = d.str_number; form.poli_id = d.poli?.id || form.poli_id }
+  else if (!form.id) { form.sip_number = ''; form.str_number = '' }
+}
+watch(() => form.doctorId, isiDariDokter)
 // ganti poli → lepas pemetaan dokter yang bukan dari poli itu
 watch(() => form.poli_id, () => {
   if (form.doctorId && !dokterPoli.value.some((d) => d.id === form.doctorId)) form.doctorId = ''
@@ -97,12 +118,13 @@ const buka = (u?: ApiUser) => {
   if (u) {
     const dp = u.doctor_profile
     const doc = { poli_id: dp?.poli?.id || '', sip_number: dp?.sip_number || '', str_number: dp?.str_number || '' }
-    Object.assign(form, { id: u.id, name: u.name, nip: u.nip, email: u.email, role: u.role, origRole: u.role, ...doc, orig: { ...doc } })
+    Object.assign(form, { id: u.id, name: u.name, nip: u.nip, email: u.email, role: u.role, origRole: u.role, doctorId: u.doctor_id || '', ...doc, orig: { ...doc } })
   }
   formErr.value = ''
   show.value = true
+  if (isDokter.value) loadTerpakai()
   if (isDokter.value && !poliOpsi.value.length) loadPoli()
-  else if (form.sip_number) form.doctorId = dokterOpsi.value.find((x) => x.sip_number === form.sip_number)?.id || ''
+  else if (!form.doctorId && form.sip_number) form.doctorId = dokterOpsi.value.find((x) => x.sip_number === form.sip_number)?.id || ''
 }
 /** Profil dokter: wajib lengkap saat register / ganti role ke doctor. */
 const cekDokter = () => {
@@ -124,12 +146,16 @@ const simpan = async () => {
   if (!f.name || !f.nip || !f.email) { formErr.value = 'Nama, NIP, dan email wajib diisi'; return }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email)) { formErr.value = 'Format email tidak valid'; return }
   if (!form.role) { formErr.value = 'Role wajib dipilih'; return }
-  if (isDokter.value) { const e = cekDokter(); if (e) { formErr.value = e; return } }
+  if (isDokter.value) {
+    // Register cukup doctor_id (profil diambil server dari master dokter); ubah user masih pakai poli/SIP/STR.
+    const e = form.id ? cekDokter() : !form.doctorId ? 'Data dokter wajib dipilih' : ''
+    if (e) { formErr.value = e; return }
+  }
   saving.value = true
   try {
     if (!form.id) {
       const pw = tempPassword()
-      await svc.create({ ...f, password: pw, role: form.role, ...(isDokter.value ? dokterFields() : {}) })
+      await svc.create({ ...f, password: pw, role: form.role, ...(isDokter.value ? { doctor_id: form.doctorId } : {}) })
       hasil.value = { judul: 'User ditambahkan', user: f.email, pw }
       toast.ok(`User ${f.name} ditambahkan`)
     } else {
@@ -342,18 +368,19 @@ const ubahMatriks = (modul: string, key: string, e: Event) => {
           <span v-if="form.id && form.id === user?.id" class="hint">Role akun sendiri tidak dapat diubah.</span>
         </div>
         <template v-if="isDokter">
-          <div class="field"><label class="req" for="uf-poli">Poli</label>
+          <div class="field"><label :class="{ req: form.id }" for="uf-poli">Poli</label>
             <select id="uf-poli" v-model="form.poli_id" class="select">
               <option value="">{{ poliOpsi.length ? 'Pilih poli' : 'Memuat poli…' }}</option>
               <option v-for="p in poliOpsi" :key="p.id" :value="p.id">{{ p.name }}</option>
               <option v-if="form.poli_id && !poliOpsi.some((p) => p.id === form.poli_id)" :value="form.poli_id" disabled>Poli saat ini (nonaktif)</option>
             </select>
           </div>
-          <div class="field"><label for="uf-dr">Data dokter (opsional, mengisi SIP/STR)</label>
-            <select id="uf-dr" v-model="form.doctorId" class="select"><option value="">Tidak dipetakan</option><option v-for="d in dokterPoli" :key="d.id" :value="d.id">{{ d.name }}</option></select>
+          <div class="field"><label :class="{ req: !form.id }" for="uf-dr">{{ form.id ? 'Data dokter (opsional, mengisi SIP/STR)' : 'Data dokter' }}</label>
+            <select id="uf-dr" v-model="form.doctorId" class="select"><option value="">{{ form.id ? 'Tidak dipetakan' : 'Pilih dokter' }}</option><option v-for="d in dokterPoli" :key="d.id" :value="d.id">{{ d.name }}</option></select>
+            <span v-if="!form.id && dokterOpsi.length && !dokterPoli.length" class="hint">Semua dokter{{ form.poli_id ? ' di poli ini' : '' }} sudah punya akun.</span>
           </div>
-          <div class="field"><label class="req" for="uf-sip">No. SIP</label><input id="uf-sip" v-model="form.sip_number" class="input mono" maxlength="50" placeholder="mis. 446/001/SIP-D/2026" /></div>
-          <div class="field"><label class="req" for="uf-str">No. STR</label><input id="uf-str" v-model="form.str_number" class="input mono" maxlength="50" /></div>
+          <div class="field"><label :class="{ req: form.id }" for="uf-sip">No. SIP</label><input id="uf-sip" v-model="form.sip_number" class="input mono" maxlength="50" :placeholder="form.id ? 'mis. 446/001/SIP-D/2026' : 'Terisi dari data dokter'" :disabled="!form.id" /></div>
+          <div class="field"><label :class="{ req: form.id }" for="uf-str">No. STR</label><input id="uf-str" v-model="form.str_number" class="input mono" maxlength="50" :placeholder="form.id ? '' : 'Terisi dari data dokter'" :disabled="!form.id" /></div>
         </template>
       </div>
       <p v-if="form.id && form.origRole === DOKTER && !isDokter" class="hint">Mengganti role dari Doctor akan menghapus profil dokter (poli, SIP, STR) user ini.</p>
