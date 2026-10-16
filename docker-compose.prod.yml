@@ -1,0 +1,100 @@
+# Production backend: API + PostgreSQL + MinIO.
+#   cp .env.prod.example .env.prod    # fill it in, never commit it
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+# Always pass --env-file .env.prod (otherwise Compose reads the development .env).
+# Names are unique ("simrs-v2-api-prod*") so they cannot clash with other stacks on the host.
+# The API and MinIO listen on 127.0.0.1 only; put your reverse proxy in front for public access.
+name: simrs-v2-api-prod
+
+services:
+  simrs-v2-api-prod:
+    build: .
+    image: simrs-v2-api-prod:latest
+    container_name: simrs-v2-api-prod
+    restart: unless-stopped
+    depends_on:
+      simrs-v2-api-prod-postgres:
+        condition: service_healthy
+      simrs-v2-api-prod-minio:
+        condition: service_started # the API retries on restart until MinIO answers
+    ports:
+      - "127.0.0.1:${API_HOST_PORT:-18080}:8080"
+    environment:
+      APP_HOST: 0.0.0.0
+      APP_PORT: "8080"
+      DB_HOST: simrs-v2-api-prod-postgres
+      DB_PORT: "5432"
+      DB_USER: ${DB_USER:?set DB_USER in .env.prod}
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env.prod}
+      DB_NAME: ${DB_NAME:-simrs}
+      DB_SSLMODE: disable
+      DB_TIMEZONE: ${DB_TIMEZONE:-Asia/Jakarta}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env.prod (at least 32 characters)}
+      JWT_ACCESS_TTL_HOURS: ${JWT_ACCESS_TTL_HOURS:-8}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-} # empty = same-origin only
+      MINIO_ENDPOINT: simrs-v2-api-prod-minio:9000
+      MINIO_USE_SSL: "false"
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?set MINIO_ACCESS_KEY in .env.prod}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?set MINIO_SECRET_KEY in .env.prod (at least 8 characters)}
+      MINIO_BUCKET: ${MINIO_BUCKET:-simrs-files}
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
+      # The address the browser uses for file uploads/downloads (presigned URLs are signed for it).
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:19000}
+    networks:
+      - simrs-v2-api-prod-net
+
+  simrs-v2-api-prod-postgres:
+    image: postgres:16-alpine
+    container_name: simrs-v2-api-prod-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:?set DB_USER in .env.prod}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env.prod}
+      POSTGRES_DB: ${DB_NAME:-simrs}
+    volumes:
+      - simrs_v2_api_prod_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - simrs-v2-api-prod-net
+
+  # The Chainguard MinIO image runs as user 65532 and has no shell, so this one-off container gives
+  # that user the data volume before MinIO starts. It exits right after (status "Exited (0)" is normal).
+  simrs-v2-api-prod-minio-init:
+    image: alpine:3.20
+    container_name: simrs-v2-api-prod-minio-init
+    command: ["chown", "-R", "65532:65532", "/data"]
+    volumes:
+      - simrs_v2_api_prod_miniodata:/data
+    restart: "no"
+
+  simrs-v2-api-prod-minio:
+    image: cgr.dev/chainguard/minio:latest
+    container_name: simrs-v2-api-prod-minio
+    restart: unless-stopped
+    depends_on:
+      simrs-v2-api-prod-minio-init:
+        condition: service_completed_successfully
+    command: ["server", "/data", "--console-address", ":9001"]
+    ports:
+      - "127.0.0.1:${MINIO_HOST_PORT:-19000}:9000"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:?set MINIO_ACCESS_KEY in .env.prod}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:?set MINIO_SECRET_KEY in .env.prod (at least 8 characters)}
+    volumes:
+      - simrs_v2_api_prod_miniodata:/data
+    networks:
+      - simrs-v2-api-prod-net
+
+networks:
+  simrs-v2-api-prod-net:
+    name: simrs-v2-api-prod-net
+
+volumes:
+  simrs_v2_api_prod_pgdata:
+    name: simrs_v2_api_prod_pgdata
+  simrs_v2_api_prod_miniodata:
+    name: simrs_v2_api_prod_miniodata
