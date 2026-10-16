@@ -1,22 +1,22 @@
 <script setup lang="ts">
 // GL-02 Beranda Kasir
-const { db, patient, billTotals } = useDb()
 const { user } = useAuth()
-const { siap, terdaftar, dilayani, menunggu, lunas, totalSementara, penerimaan, shift } = useKasir()
+const { siap, terdaftar, dilayani, menunggu, lunas, totalSementara, penerimaan, shift, galat } = useKasir()
 
 const now = new Date().toISOString()
 const h = new Date().getHours()
 const salam = h < 11 ? 'Selamat pagi' : h < 15 ? 'Selamat siang' : h < 18 ? 'Selamat sore' : 'Selamat malam'
 const sapaan = computed(() => (user.value?.nama || '').split(' ')[0])
-const top3 = computed(() => siap.value.slice().sort((a: any, b: any) => ((a.jamSelesai || '') > (b.jamSelesai || '') ? 1 : -1)).slice(0, 3))
+const top3 = computed(() => siap.value.filter((r: any) => r.b.status !== 'lunas').slice().sort((a: any, b: any) => ((a.v.jamSelesai || '') > (b.v.jamSelesai || '') ? 1 : -1)).slice(0, 3))
 const jamShift = computed(() => (shift.value ? `${fmtJam(shift.value.mulai)}–${shift.value.selesai ? fmtJam(shift.value.selesai) : 'sekarang'}` : '-'))
-const lunasShift = computed(() => (shift.value ? Object.values(db.bills).flatMap((b: any) => b.payments || []).filter((p: any) => p.shiftId === shift.value.id).length : 0))
+const lunasShift = computed(() => shift.value?.sum.transaksi || 0)
 </script>
 
 <template>
   <div>
     <PageHead code="GL-02" role="Kasir" title="Beranda Kasir" :subtitle="`${salam}, ${sapaan}. Ringkasan ${fmtTglPanjang()} · per ${fmtJam(now)}.`" />
 
+    <div v-if="galat" class="guide warn" style="margin-bottom: 16px">{{ galat }}</div>
     <div class="grid g4">
       <div class="kl-kpi"><small>Siap bayar</small><b>{{ siap.length }}</b><span>Kunjungan selesai · siap finalisasi</span></div>
       <div class="kl-kpi"><small>Menunggu klinis</small><b>{{ menunggu.length }}</b><span>{{ terdaftar.length }} terdaftar · {{ dilayani.length }} dilayani</span></div>
@@ -47,11 +47,11 @@ const lunasShift = computed(() => (shift.value ? Object.values(db.bills).flatMap
               <thead><tr><th>Pasien / RM</th><th>Penjamin</th><th>Tagihan</th><th>Total sementara</th></tr></thead>
               <tbody>
                 <tr v-if="!top3.length"><td class="empty" colspan="4">Belum ada kunjungan selesai yang menunggu pembayaran.</td></tr>
-                <tr v-for="v in top3" :key="v.id" class="click" @click="navigateTo('/kasir/' + v.id)">
-                  <td data-label="Pasien / RM">{{ patient(v.patientId).nama }} · RM{{ patient(v.patientId).rm }}</td>
-                  <td data-label="Penjamin">{{ v.penjamin }}</td>
-                  <td data-label="Tagihan">{{ statusTagihan(db.bills[v.id]).label }}</td>
-                  <td data-label="Total sementara" style="color: var(--teal-d)">{{ fmtRp(billTotals(v.id).net) }}</td>
+                <tr v-for="r in top3" :key="r.id" class="click" @click="navigateTo('/kasir/' + r.id)">
+                  <td data-label="Pasien / RM">{{ r.p.nama }} · {{ r.p.rm }}</td>
+                  <td data-label="Penjamin">{{ r.v.penjamin }}</td>
+                  <td data-label="Tagihan">{{ statusTagihan(r.b).label }}</td>
+                  <td data-label="Total sementara" style="color: var(--teal-d)">{{ fmtRp(r.b.totals.net) }}</td>
                 </tr>
               </tbody>
             </table>

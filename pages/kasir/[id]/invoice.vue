@@ -1,16 +1,31 @@
 <script setup lang="ts">
 // KS-04 Invoice & Kwitansi (preview cetak A4)
 import logo from '~/assets/images/logo-invoice.png'
+// Data dari /api/v1/cashier/bills/{visit_id}; setiap cetak dicatat di audit tagihan server.
 const route = useRoute()
-const { db, visit, patient, poli, doctor, billItems, billTotals, audit } = useDb()
 const toast = useToast()
 
 const id = computed(() => String(route.params.id))
-const v = computed(() => visit(id.value))
-const pt = computed(() => (v.value ? patient(v.value.patientId) : null))
-const bill = computed(() => db.bills[id.value])
-const items = computed(() => billItems(id.value))
-const totals = computed(() => billTotals(id.value))
+const data = ref<any>(null)
+const loading = ref(true)
+const galat = ref('')
+watch(id, async () => {
+  loading.value = true
+  try {
+    data.value = await kasirApi.tagihan(id.value)
+    galat.value = ''
+  } catch (e: any) {
+    data.value = null
+    galat.value = pesanKasir(e)
+  } finally {
+    loading.value = false
+  }
+}, { immediate: true })
+const v = computed(() => data.value?.v)
+const pt = computed(() => data.value?.p)
+const bill = computed(() => data.value?.b)
+const items = computed(() => bill.value?.items || [])
+const totals = computed(() => bill.value?.totals || { total: 0, diskon: 0, net: 0, penjamin: 0, pasien: 0, selisih: 0, bayar: 0, sisa: 0 })
 const siap = computed(() => bill.value && bill.value.status !== 'draf')
 const lunas = computed(() => bill.value?.status === 'lunas')
 const bayar = computed(() => bill.value?.payments || [])
@@ -40,8 +55,8 @@ const bars = computed(() => {
   return { list: out, width: pos + 2 }
 })
 
-const cetak = (label: string) => {
-  audit('cetak invoice', `${bill.value.noInv}${bill.value.noKw ? ' / ' + bill.value.noKw : ''} · ${v.value.noKunjungan}`, label)
+const cetak = async (label: string) => {
+  if (!(await aksiKasir(() => kasirApi.catatCetak(id.value, label === 'unduh PDF' ? 'pdf' : 'print')).then((r: unknown) => r !== undefined))) return
   toast.ok(label === 'unduh PDF' ? 'Pilih "Simpan sebagai PDF" pada dialog cetak' : 'Membuka dialog cetak · tercatat audit')
   setTimeout(() => window.print(), 150)
 }
@@ -75,7 +90,7 @@ const cetak = (label: string) => {
             <tbody>
               <tr><td>Invoice / Kwitansi</td><td class="val">{{ bill.noInv }} / {{ bill.noKw || '-' }}</td></tr>
               <tr><td>Pasien / RM</td><td class="val">{{ pt.nama }} / {{ pt.rm }} · NIK {{ nik }}</td></tr>
-              <tr><td>Kunjungan</td><td class="val">{{ v.noKunjungan }} · {{ poli(v.poliId)?.kode }} · {{ doctor(v.doctorId)?.nama }}</td></tr>
+              <tr><td>Kunjungan</td><td class="val">{{ v.noKunjungan }} · {{ v.poliKode || v.poliNama }} · {{ v.dokterNama }}</td></tr>
               <tr><td>Penjamin</td><td class="val">{{ labelSkema(bill.skema) }} · {{ fmtTglPanjang(v.tanggal).replace(/^\w+, /, '') }}</td></tr>
             </tbody>
           </table>
@@ -127,7 +142,8 @@ const cetak = (label: string) => {
       </div>
     </div>
   </div>
-  <div v-else class="card"><h2>Tagihan tidak ditemukan</h2><NuxtLink to="/kasir" class="btn">Kembali</NuxtLink></div>
+  <div v-else-if="loading" class="card"><p class="muted">Memuat tagihan…</p></div>
+  <div v-else class="card"><h2>Tagihan tidak ditemukan</h2><p v-if="galat" class="muted">{{ galat }}</p><NuxtLink to="/kasir" class="btn">Kembali</NuxtLink></div>
 </template>
 
 <style scoped>

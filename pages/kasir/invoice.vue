@@ -1,10 +1,20 @@
 <script setup lang="ts">
 // Menu "Invoice & kwitansi": daftar dokumen INV/KW hari ini; buka untuk pratinjau & cetak (KS-04).
-const { db, visit, patient } = useDb()
+// Daftar dari /api/v1/cashier/bills (tagihan final & lunas, terbaru dahulu); pencarian disaring di sini.
 const q = ref('')
-const docs = computed(() => Object.values(db.bills)
-  .filter((b: any) => b.status !== 'draf' && visit(b.visitId))
-  .map((b: any) => ({ b, v: visit(b.visitId), p: patient(visit(b.visitId).patientId), at: b.payments?.[b.payments.length - 1]?.at || b.finalAt }))
+const semuaDocs = ref<any[]>([])
+const loading = ref(true)
+const galat = ref('')
+onMounted(async () => {
+  try {
+    semuaDocs.value = (await kasirApi.dokumen()).map((d: any) => ({ ...d, at: d.b.paidAt || d.b.finalAt }))
+  } catch (e: any) {
+    galat.value = pesanKasir(e)
+  } finally {
+    loading.value = false
+  }
+})
+const docs = computed(() => semuaDocs.value
   .filter((d: any) => !q.value.trim() || [d.p?.nama, d.p?.rm, d.b.noInv, d.b.noKw, d.v.noKunjungan].some((t) => t && t.toLowerCase().includes(q.value.trim().toLowerCase())))
   .sort((a: any, b: any) => ((b.at || '') > (a.at || '') ? 1 : -1)))
 </script>
@@ -12,13 +22,14 @@ const docs = computed(() => Object.values(db.bills)
   <div>
     <PageHead code="KS-04" role="Kasir" title="Invoice & Kwitansi" subtitle="Dokumen pembayaran · pilih dokumen untuk preview cetak A4" />
     <div class="kl-filters"><input v-model="q" class="input q" placeholder="⌕ Nama / RM / No. INV / KW" aria-label="Cari dokumen"></div>
+    <div v-if="galat" class="guide warn" style="margin-bottom: 16px">{{ galat }}</div>
     <div class="panel">
       <h2>Dokumen INV / KW</h2>
       <div class="table-wrap">
         <table class="tbl rtable">
           <thead><tr><th>Invoice / Kwitansi</th><th>Pasien / RM</th><th>Kunjungan</th><th>Status</th><th>Waktu</th><th>Aksi</th></tr></thead>
           <tbody>
-            <tr v-if="!docs.length"><td class="empty" colspan="6">Belum ada tagihan final atau lunas.</td></tr>
+            <tr v-if="!docs.length"><td class="empty" colspan="6">{{ loading ? 'Memuat…' : 'Belum ada tagihan final atau lunas.' }}</td></tr>
             <tr v-for="d in docs" :key="d.b.visitId" class="click" @click="navigateTo(`/kasir/${d.b.visitId}/invoice`)">
               <td data-label="Invoice / Kwitansi">{{ d.b.noInv }}<div class="muted small">{{ d.b.noKw || '-' }}</div></td>
               <td data-label="Pasien / RM">{{ d.p?.nama }}<div>{{ d.p?.rm }}</div></td>

@@ -1,23 +1,45 @@
 <script setup lang="ts">
-// KS-02 Detail Tagihan
+// KS-02 Detail Tagihan (data dari /api/v1/cashier/bills/{visit_id})
 const route = useRoute()
-const { db, visit, patient, getSoap, billItems, billTotals, setSkema, addManualItem, setDiskon, finalizeBill } = useDb()
 const toast = useToast()
 
 const id = computed(() => String(route.params.id))
-const v = computed(() => visit(id.value))
-const pt = computed(() => (v.value ? patient(v.value.patientId) : null))
-const bill = computed(() => db.bills[id.value])
+const data = ref<any>(null)
+const loading = ref(true)
+const galat = ref('')
+const muat = async () => {
+  loading.value = true
+  try {
+    data.value = await kasirApi.tagihan(id.value)
+    galat.value = ''
+  } catch (e: any) {
+    data.value = null
+    galat.value = pesanKasir(e)
+  } finally {
+    loading.value = false
+  }
+}
+watch(id, muat, { immediate: true })
+/** Jalankan aksi tagihan; respons server menggantikan data halaman. */
+const ubah = async (fn: () => Promise<any>, okMsg = '') => {
+  const r = await aksiKasir(fn, okMsg)
+  if (r) data.value = r
+  return r
+}
+
+const v = computed(() => data.value?.v)
+const pt = computed(() => data.value?.p)
+const bill = computed(() => data.value?.b)
 const status = computed(() => bill.value?.status || 'draf')
 const locked = computed(() => status.value !== 'draf')
-const items = computed(() => billItems(id.value))
-const totals = computed(() => billTotals(id.value))
-const soapFinal = computed(() => !!(v.value && getSoap(id.value).signed))
+const items = computed(() => bill.value?.items || [])
+const totals = computed(() => bill.value?.totals || { total: 0, diskon: 0, net: 0, penjamin: 0, pasien: 0, selisih: 0, bayar: 0, sisa: 0 })
+// kunjungan berstatus selesai di server hanya setelah dokter memfinalkan SOAP
+const soapFinal = computed(() => v.value?.status === 'selesai' || v.value?.status === 'lunas')
 onMounted(() => { try { localStorage.setItem(KS_AKTIF_KEY, id.value) } catch {} })
 
-// versi tarif aktif (master IT-04)
-const tarifAktif = computed(() => db.tarif.reduce((m: any, t: any) => (!m || t.berlaku > m.berlaku ? t : m), null))
-const subjudul = computed(() => `${locked.value ? 'Tagihan final · baris dibekukan' : 'Draf tagihan dari pelayanan klinis'} · Tarif v${tarifAktif.value?.versi || 1} / berlaku ${fmtTglPanjang(tarifAktif.value?.berlaku).replace(/^\w+, /, '')}`)
+// versi tarif aktif (master tarif di server)
+const subjudul = computed(() => `${locked.value ? 'Tagihan final · baris dibekukan' : 'Draf tagihan dari pelayanan klinis'} · Tarif v${bill.value?.tarifVersi || 1}${bill.value?.tarifBerlaku ? ' / berlaku ' + fmtTglPanjang(bill.value.tarifBerlaku).replace(/^\w+, /, '') : ''}`)
 
 // baris rincian berurutan per kategori; kategori kosong "Lainnya" tetap ditampilkan
 const LABEL: Record<string, string> = { Administrasi: 'Administrasi / karcis', Konsultasi: 'Konsultasi', Tindakan: 'Tindakan', 'Obat/resep': 'Obat / resep', Lainnya: 'Lainnya' }
@@ -39,7 +61,7 @@ const syncSk = () => {
 }
 syncSk()
 watch(() => [id.value, bill.value?.skema, bill.value?.plafon, bill.value?.selisih], syncSk)
-const terapkan = () => toast.attempt(() => setSkema(id.value, sk.skema, sk.plafon, sk.selisih), `Skema bayar: ${labelSkema(sk.skema)}`)
+const terapkan = async () => { if (!(await ubah(() => kasirApi.setSkema(id.value, sk.skema, sk.plafon, sk.selisih), `Skema bayar: ${labelSkema(sk.skema)}`))) syncSk() }
 const pilihSkema = (s: string) => { if (!locked.value && s !== sk.skema) { sk.skema = s; terapkan() } }
 const skemaEl = ref<HTMLElement | null>(null)
 const ubahSkema = () => skemaEl.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -49,26 +71,27 @@ const selisihAsuransi = computed(() => Math.max(0, totals.value.net - (Number(sk
 const showManual = ref(false)
 const man = reactive({ nama: '', tarif: 0, qty: 1, alasan: '' })
 const bukaManual = () => { Object.assign(man, { nama: '', tarif: 0, qty: 1, alasan: '' }); showManual.value = true }
-const simpanManual = () => {
+const simpanManual = async () => {
   if (!man.nama.trim()) return toast.err('Nama item wajib diisi')
   if (!(man.tarif > 0) || !(man.qty > 0)) return toast.err('Tarif dan qty harus lebih dari 0')
-  if (toast.attempt(() => addManualItem(id.value, { ...man }), 'Item manual ditambahkan')) showManual.value = false
+  if (man.alasan.trim().length < 15) return toast.err('Item manual wajib alasan minimal 15 karakter')
+  if (await ubah(() => kasirApi.addManualItem(id.value, { ...man }), 'Item manual ditambahkan')) showManual.value = false
 }
 
 // ---- penyesuaian manual & diskon (inline) ----
 const adj = reactive({ nilai: 0, diskon: 0, alasanNilai: '', alasanDiskon: '' })
 const muatDiskon = () => { adj.diskon = bill.value?.diskon?.nominal || 0; adj.alasanDiskon = bill.value?.diskon?.alasan || '' }
 muatDiskon()
-watch(() => [id.value, bill.value?.diskon?.nominal], muatDiskon)
-const simpanPenyesuaian = () => {
+watch(() => [id.value, bill.value?.diskon?.nominal, bill.value?.diskon?.alasan], muatDiskon)
+const simpanPenyesuaian = async () => {
   const nilai = Number(adj.nilai) || 0
   const diskon = Number(adj.diskon) || 0
   if (nilai > 0 && adj.alasanNilai.trim().length < 15) return toast.err('Alasan penyesuaian manual minimal 15 karakter')
   if (diskon > 0 && adj.alasanDiskon.trim().length < 15) return toast.err('Alasan diskon minimal 15 karakter')
   if (diskon < 0 || diskon > totals.value.total + nilai) return toast.err('Nominal diskon tidak valid')
-  if (nilai > 0 && !toast.attempt(() => addManualItem(id.value, { nama: 'Penyesuaian manual', tarif: nilai, qty: 1, alasan: adj.alasanNilai.trim() }))) return
-  if (diskon !== (bill.value?.diskon?.nominal || 0) || adj.alasanDiskon !== (bill.value?.diskon?.alasan || '')) {
-    if (!toast.attempt(() => setDiskon(id.value, diskon, adj.alasanDiskon.trim()))) return
+  if (nilai > 0 && !(await ubah(() => kasirApi.addManualItem(id.value, { nama: 'Penyesuaian manual', tarif: nilai, qty: 1, alasan: adj.alasanNilai.trim() })))) return
+  if (diskon !== (bill.value?.diskon?.nominal || 0) || adj.alasanDiskon.trim() !== (bill.value?.diskon?.alasan || '')) {
+    if (!(await ubah(() => kasirApi.setDiskon(id.value, diskon, adj.alasanDiskon)))) return
   }
   adj.nilai = 0; adj.alasanNilai = ''
   toast.ok('Penyesuaian disimpan · tercatat audit')
@@ -77,9 +100,9 @@ const simpanPenyesuaian = () => {
 // ---- finalisasi ----
 const showFinal = ref(false)
 const bisaFinal = computed(() => v.value?.status === 'selesai' && status.value === 'draf')
-const finalkan = () => {
+const finalkan = async () => {
   showFinal.value = false
-  if (toast.attempt(() => finalizeBill(id.value), 'Tagihan difinalkan — nomor INV terbit, baris dibekukan')) navigateTo('/kasir/' + id.value + '/bayar')
+  if (await ubah(() => kasirApi.finalkan(id.value), 'Tagihan difinalkan — nomor INV terbit, baris dibekukan')) navigateTo('/kasir/' + id.value + '/bayar')
 }
 </script>
 
@@ -194,5 +217,6 @@ const finalkan = () => {
       <template #footer><button class="btn" @click="showFinal = false">Batal</button><button class="btn btn-primary" @click="finalkan">Finalkan</button></template>
     </AppModal>
   </div>
-  <div v-else class="card"><h2>Tagihan tidak ditemukan</h2><NuxtLink to="/kasir" class="btn">Kembali</NuxtLink></div>
+  <div v-else-if="loading" class="card"><p class="muted">Memuat tagihan…</p></div>
+  <div v-else class="card"><h2>Tagihan tidak ditemukan</h2><p v-if="galat" class="muted">{{ galat }}</p><NuxtLink to="/kasir" class="btn">Kembali</NuxtLink></div>
 </template>

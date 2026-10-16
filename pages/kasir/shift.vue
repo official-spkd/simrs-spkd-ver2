@@ -1,6 +1,5 @@
 <script setup lang="ts">
-// KS-05 Rekap Penerimaan Shift: rekap per kasir & shift, rekonsiliasi, tutup shift
-const { db, shiftSummary, closeShift } = useDb()
+// KS-05 Rekap Penerimaan Shift: rekap per kasir & shift, rekonsiliasi, tutup shift (data dari /api/v1/cashier/shifts)
 const { user } = useAuth()
 const toast = useToast()
 const bolehTutup = computed(() => user.value?.role === 'kasir')
@@ -9,36 +8,58 @@ const bolehTutup = computed(() => user.value?.role === 'kasir')
 const tanggal = ref(todayStr())
 const kasir = ref('')
 const shiftId = ref('')
-const shiftHari = computed(() => db.shifts.filter((s: any) => (s.mulai || '').slice(0, 10) === tanggal.value || (!s.closed && tanggal.value === todayStr())))
+const shiftHari = ref<any[]>([])
+const tertunda = ref(0) // pembayaran tertunda = tagihan final (belum lunas)
+const loading = ref(false)
+const galat = ref('')
+const muat = async () => {
+  loading.value = true
+  try {
+    // tagihan tertunda hanya dipakai kasir saat menutup shift; manajemen cukup melihat rekap
+    const [list, final] = await Promise.all([kasirApi.shifts(tanggal.value), bolehTutup.value ? kasirApi.dokumen('', 'final') : Promise.resolve([])])
+    shiftHari.value = list
+    tertunda.value = final.length
+    galat.value = ''
+  } catch (e: any) {
+    galat.value = e instanceof ApiError && e.status === 403 ? 'Akun ini tidak memiliki akses ke rekap shift kasir.' : pesanKasir(e)
+  } finally {
+    loading.value = false
+  }
+}
+onMounted(muat)
+watch(tanggal, () => { shiftId.value = ''; muat() })
 const daftarKasir = computed(() => [...new Set(shiftHari.value.map((s: any) => s.kasir))])
 const rows = computed(() => shiftHari.value
   .filter((s: any) => (!kasir.value || s.kasir === kasir.value) && (!shiftId.value || s.id === shiftId.value))
-  .map((s: any) => ({ s, sum: shiftSummary(s) })))
+  .map((s: any) => ({ s, sum: s.sum })))
 watch(kasir, () => (shiftId.value = ''))
 
 const total = computed(() => rows.value.reduce((a, r) => ({
   transaksi: a.transaksi + r.sum.transaksi, tunai: a.tunai + r.sum.tunai, qris: a.qris + r.sum.qris, va: a.va + r.sum.va, total: a.total + r.sum.total,
 }), { transaksi: 0, tunai: 0, qris: 0, va: 0, total: 0 }))
-// jumlah transaksi per metode memakai aturan yang sama dengan shiftSummary
+// jumlah transaksi per metode memakai rekap yang sama dari server
 const jumlahPer = (k: 'nTunai' | 'nQris' | 'nVa') => rows.value.reduce((a, r) => a + r.sum[k], 0)
 const jam = (s: any) => `${fmtJam(s.mulai)}–${s.selesai ? fmtJam(s.selesai) : 'sekarang'}`
-const terbuka = computed(() => db.shifts.find((s: any) => !s.closed && (s.kasir === user.value?.nama)) || db.shifts.find((s: any) => !s.closed))
+const terbuka = computed(() => shiftHari.value.find((s: any) => !s.closed && s.kasirId === user.value?.id) || shiftHari.value.find((s: any) => !s.closed))
 const subjudul = computed(() => `Rekonsiliasi metode pembayaran · ${fmtTglPanjang(tanggal.value).replace(/^\w+, /, '')} · ${terbuka.value ? 'Shift aktif masih terbuka' : 'Semua shift ditutup'}`)
 
-// rekonsiliasi shift terbuka
-const target = computed(() => (shiftId.value ? db.shifts.find((s: any) => s.id === shiftId.value && !s.closed) : null) || terbuka.value)
-const sumTarget = computed(() => (target.value ? shiftSummary(target.value) : { transaksi: 0, tunai: 0, qris: 0, va: 0, total: 0, nTunai: 0, nQris: 0, nVa: 0 }))
+// rekonsiliasi shift terbuka (server hanya mengizinkan kasir pemilik shift menutupnya)
+const target = computed(() => (shiftId.value ? shiftHari.value.find((s: any) => s.id === shiftId.value && !s.closed) : null) || terbuka.value)
+const sumTarget = computed(() => target.value?.sum || { transaksi: 0, tunai: 0, qris: 0, va: 0, total: 0, nTunai: 0, nQris: 0, nVa: 0 })
 const rekon = reactive({ tunai: 0, catatan: '', cekTunai: false, cekDigital: false, cekTertunda: false })
 watch(() => [target.value?.id, sumTarget.value.tunai], () => { rekon.tunai = sumTarget.value.tunai }, { immediate: true })
 const selisihTunai = computed(() => (Number(rekon.tunai) || 0) - sumTarget.value.tunai)
-// pembayaran tertunda = tagihan final (belum lunas) hari ini
-const tertunda = computed(() => Object.values(db.bills).filter((b: any) => b.status === 'final').length)
-const bisaTutup = computed(() => bolehTutup.value && !!target.value && rekon.cekTunai && rekon.cekDigital && rekon.cekTertunda && (selisihTunai.value === 0 || rekon.catatan.trim().length >= 10))
+const milikSaya = computed(() => !!target.value && target.value.kasirId === user.value?.id)
+const bisaTutup = computed(() => bolehTutup.value && milikSaya.value && rekon.cekTunai && rekon.cekDigital && rekon.cekTertunda && (selisihTunai.value === 0 || rekon.catatan.trim().length >= 10))
 const showClose = ref(false)
-const tutup = () => {
+const tutup = async () => {
   showClose.value = false
-  if (toast.attempt(() => closeShift(target.value.id, { tunaiTerhitung: Number(rekon.tunai) || 0, catatan: rekon.catatan.trim(), selisih: selisihTunai.value }), `Shift ${target.value.kasir} ditutup · rekap ${fmtRp(sumTarget.value.total)} terkunci`)) {
+  const t = target.value
+  const terkunci = sumTarget.value.total
+  if (await aksiKasir(() => kasirApi.tutupShift(t.id, Number(rekon.tunai) || 0, rekon.catatan), `Shift ${t.kasir} ditutup · rekap ${fmtRp(terkunci)} terkunci`)) {
     Object.assign(rekon, { catatan: '', cekTunai: false, cekDigital: false, cekTertunda: false })
+    shiftId.value = ''
+    await muat()
   }
 }
 
@@ -65,8 +86,10 @@ const ekspor = (hanyaTarget = false) => {
       <input v-model="tanggal" class="input" type="date" aria-label="Tanggal">
       <select v-model="kasir" class="select" aria-label="Kasir"><option value="">Semua kasir</option><option v-for="k in daftarKasir" :key="k" :value="k">{{ k }}</option></select>
       <select v-model="shiftId" class="select" aria-label="Shift"><option value="">Semua shift</option><option v-for="s in shiftHari.filter((x: any) => !kasir || x.kasir === kasir)" :key="s.id" :value="s.id">{{ s.kasir }} · {{ jam(s) }}</option></select>
+      <button class="btn" :disabled="loading" @click="muat">{{ loading ? 'Memuat…' : 'Segarkan' }}</button>
       <button class="btn" @click="ekspor()">Export Excel</button>
     </div>
+    <div v-if="galat" class="guide warn" style="margin-bottom: 16px">{{ galat }}</div>
 
     <div class="grid g4" style="margin-bottom: 16px">
       <div class="kl-kpi"><small>Tunai</small><b>{{ fmtRp(total.tunai) }}</b><span>{{ jumlahPer('nTunai') }} transaksi</span></div>
@@ -127,6 +150,7 @@ const ekspor = (hanyaTarget = false) => {
         <label class="check"><input v-model="rekon.cekTertunda" type="checkbox" :disabled="!bolehTutup"> Tidak ada pembayaran tertunda</label>
         <div class="guide">Menutup shift mengunci rekap {{ fmtRp(sumTarget.total) }} dan mencatat waktu serta operator di audit trail.</div>
         <div v-if="!bolehTutup" class="guide warn">Mode lihat saja. Penutupan shift dilakukan oleh kasir.</div>
+        <div v-else-if="!milikSaya" class="guide warn">Shift ini milik {{ target.kasir }}; hanya kasir tersebut yang dapat menutupnya.</div>
         <div class="kl-actions">
           <button class="btn" @click="ekspor(true)">Export rekap</button>
           <button class="btn btn-primary" :disabled="!bisaTutup" @click="showClose = true">Tutup shift</button>

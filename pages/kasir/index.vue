@@ -1,11 +1,10 @@
 <script setup lang="ts">
-// KS-01 Worklist Tagihan
-const { db, patient, poli, billTotals } = useDb()
+// KS-01 Worklist Tagihan (data dari /api/v1/cashier/bills/worklist)
 const { user } = useAuth()
 const toast = useToast()
 
 const tanggal = ref(todayStr())
-const { siap, terdaftar, dilayani, menunggu, lunas, totalSementara, penerimaan, shift } = useKasir(tanggal)
+const { kunjungan, siap, terdaftar, dilayani, menunggu, lunas, totalSementara, penerimaan, shift, loading, galat, muat } = useKasir(tanggal)
 
 const tab = ref<'siap' | 'menunggu' | 'lunas'>('siap')
 const TABS = computed(() => [
@@ -19,22 +18,22 @@ const JUDUL: Record<string, string> = { siap: 'Kunjungan selesai · Siap ditagih
 const q = ref('')
 const poliId = ref('')
 const penjamin = ref('')
-const cocok = (v: any) => {
-  if (poliId.value && v.poliId !== poliId.value) return false
-  if (penjamin.value && v.penjamin !== penjamin.value) return false
+const daftarPoli = computed(() => [...new Map<string, string>(kunjungan.value.map((r: any) => [r.v.poliId, r.v.poliNama])).entries()].map(([id, nama]) => ({ id, nama })).sort((a, b) => a.nama.localeCompare(b.nama)))
+const cocok = (r: any) => {
+  if (poliId.value && r.v.poliId !== poliId.value) return false
+  if (penjamin.value && r.v.penjamin !== penjamin.value) return false
   const s = q.value.trim().toLowerCase()
   if (!s) return true
-  const p = patient(v.patientId)
-  return p?.nama.toLowerCase().includes(s) || p?.rm.includes(s) || v.noKunjungan.toLowerCase().includes(s)
+  return r.p.nama.toLowerCase().includes(s) || r.p.rm.toLowerCase().includes(s) || r.v.noKunjungan.toLowerCase().includes(s)
 }
 const rows = computed(() => (tab.value === 'siap' ? siap.value : tab.value === 'menunggu' ? menunggu.value : lunas.value)
-  .filter(cocok).slice().sort((a: any, b: any) => ((b.jamSelesai || b.jamDaftar) > (a.jamSelesai || a.jamDaftar) ? 1 : -1)))
+  .filter(cocok).slice().sort((a: any, b: any) => ((b.v.jamSelesai || b.v.jamDaftar) > (a.v.jamSelesai || a.v.jamDaftar) ? 1 : -1)))
 
 // baris terpilih → tombol "Buka tagihan {nama}"
 const selId = ref('')
-const sel = computed(() => rows.value.find((v: any) => v.id === selId.value) || rows.value[0] || null)
-const buka = (v: any) => navigateTo('/kasir/' + v.id)
-const segarkan = () => { tanggal.value = tanggal.value || todayStr(); toast.ok('Worklist diperbarui') }
+const sel = computed(() => rows.value.find((r: any) => r.id === selId.value) || rows.value[0] || null)
+const buka = (r: any) => navigateTo('/kasir/' + r.id)
+const segarkan = async () => { if (!tanggal.value) tanggal.value = todayStr(); await muat(); if (!galat.value) toast.ok('Worklist diperbarui') }
 const jamShift = computed(() => (shift.value ? `${fmtJam(shift.value.mulai)}–${shift.value.selesai ? fmtJam(shift.value.selesai) : 'sekarang'}` : 'belum ada shift terbuka'))
 </script>
 
@@ -52,11 +51,12 @@ const jamShift = computed(() => (shift.value ? `${fmtJam(shift.value.mulai)}–$
 
     <div class="kl-filters">
       <input v-model="q" class="input q" placeholder="⌕ Nama / RM / ID kunjungan" aria-label="Cari nama, RM, atau ID kunjungan">
-      <select v-model="poliId" class="select" aria-label="Poli"><option value="">Semua poli</option><option v-for="p in db.polis" :key="p.id" :value="p.id">{{ p.nama }}</option></select>
+      <select v-model="poliId" class="select" aria-label="Poli"><option value="">Semua poli</option><option v-for="p in daftarPoli" :key="p.id" :value="p.id">{{ p.nama }}</option></select>
       <select v-model="penjamin" class="select" aria-label="Penjamin"><option value="">Semua penjamin</option><option>Umum</option><option>BPJS</option><option>Asuransi</option></select>
       <input v-model="tanggal" class="input" type="date" aria-label="Tanggal">
-      <button class="btn" @click="segarkan">Segarkan</button>
+      <button class="btn" :disabled="loading" @click="segarkan">{{ loading ? 'Memuat…' : 'Segarkan' }}</button>
     </div>
+    <div v-if="galat" class="guide warn" style="margin-bottom: 16px">{{ galat }}</div>
 
     <div class="panel">
       <h2>{{ JUDUL[tab] }}</h2>
@@ -64,16 +64,16 @@ const jamShift = computed(() => (shift.value ? `${fmtJam(shift.value.mulai)}–$
         <table class="tbl rtable">
           <thead><tr><th>ID kunjungan</th><th>Pasien / RM</th><th>Poli</th><th>Penjamin</th><th>Tagihan</th><th>{{ tab === 'lunas' ? 'Total' : 'Total sementara' }}</th><th>Selesai</th><th>Aksi</th></tr></thead>
           <tbody>
-            <tr v-if="!rows.length"><td class="empty" colspan="8">Tidak ada data.</td></tr>
-            <tr v-for="v in rows" :key="v.id" class="click" :class="{ sel: sel?.id === v.id }" tabindex="0" @click="selId = v.id" @dblclick="buka(v)" @keydown.enter="buka(v)">
-              <td data-label="ID kunjungan">{{ v.noKunjungan }}</td>
-              <td data-label="Pasien / RM">{{ patient(v.patientId).nama }}<div>{{ patient(v.patientId).rm }}</div></td>
-              <td data-label="Poli">{{ poli(v.poliId)?.nama }}</td>
-              <td data-label="Penjamin"><span class="badge b-navy">{{ v.penjamin }}</span></td>
-              <td data-label="Tagihan"><span class="badge" :class="statusTagihan(db.bills[v.id]).cls">{{ statusTagihan(db.bills[v.id]).label }}</span></td>
-              <td data-label="Total">{{ fmtRp(billTotals(v.id).net) }}</td>
-              <td data-label="Selesai">{{ v.jamSelesai ? fmtJam(v.jamSelesai) : '-' }}</td>
-              <td data-label="Aksi"><button class="btn btn-sm btn-ghost" @click.stop="buka(v)">{{ tab === 'menunggu' ? 'Lihat sementara' : tab === 'lunas' ? 'Lihat' : 'Buka tagihan' }}</button></td>
+            <tr v-if="!rows.length"><td class="empty" colspan="8">{{ loading ? 'Memuat…' : 'Tidak ada data.' }}</td></tr>
+            <tr v-for="r in rows" :key="r.id" class="click" :class="{ sel: sel?.id === r.id }" tabindex="0" @click="selId = r.id" @dblclick="buka(r)" @keydown.enter="buka(r)">
+              <td data-label="ID kunjungan">{{ r.v.noKunjungan }}</td>
+              <td data-label="Pasien / RM">{{ r.p.nama }}<div>{{ r.p.rm }}</div></td>
+              <td data-label="Poli">{{ r.v.poliNama }}</td>
+              <td data-label="Penjamin"><span class="badge b-navy">{{ r.v.penjamin }}</span></td>
+              <td data-label="Tagihan"><span class="badge" :class="statusTagihan(r.b).cls">{{ statusTagihan(r.b).label }}</span></td>
+              <td data-label="Total">{{ fmtRp(r.b.totals.net) }}</td>
+              <td data-label="Selesai">{{ r.v.jamSelesai ? fmtJam(r.v.jamSelesai) : '-' }}</td>
+              <td data-label="Aksi"><button class="btn btn-sm btn-ghost" @click.stop="buka(r)">{{ tab === 'menunggu' ? 'Lihat sementara' : tab === 'lunas' ? 'Lihat' : 'Buka tagihan' }}</button></td>
             </tr>
           </tbody>
         </table>
@@ -83,7 +83,7 @@ const jamShift = computed(() => (shift.value ? `${fmtJam(shift.value.mulai)}–$
 
     <div class="guide" style="margin-top: 16px">Hanya kunjungan selesai yang dapat difinalisasi. Total draf masih sementara; finalisasi membekukan item dan menerbitkan INV. Gangguan SEP tidak menghalangi pelayanan lokal.</div>
     <div class="kl-actions" style="margin-top: 16px">
-      <button v-if="sel" class="btn btn-primary" @click="buka(sel)">Buka tagihan {{ patient(sel.patientId).nama }}</button>
+      <button v-if="sel" class="btn btn-primary" @click="buka(sel)">Buka tagihan {{ sel.p.nama }}</button>
       <NuxtLink to="/kasir/shift" class="btn">Rekap shift</NuxtLink>
     </div>
   </div>
