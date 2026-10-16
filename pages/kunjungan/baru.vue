@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // FO-05 Form Kunjungan (wizard 4 langkah) + FO-06 Panel Penjamin & SEP
 const route = useRoute()
-const { db, patient, poli, doctor, visit, cekKepesertaan, retrySep } = useDb()
+const { db, patient, poli, doctor, visit, sessionFor, cekKepesertaan, retrySep } = useDb()
 const visits = useVisits()
 const toast = useToast()
 
@@ -58,27 +58,12 @@ const dokumenText = computed(() => (f.dokumen.length ? f.dokumen.map((d: any) =>
 // langkah 2
 // Semua poli berstatus aktif (master dari server); tidak dibatasi jadwal praktik hari ini.
 const polis = computed(() => db.polis.filter((p: any) => p.aktif))
-// Jam praktik & sisa kuota hari ini dari server (/api/v1/availability), hanya sebagai informasi: pendaftaran
-// tidak diblokir oleh jadwal maupun kuota.
-const sesiServer = ref<Record<string, any>>({})
-const sesiGagal = ref(false) // jadwal tidak bisa dimuat → semua dokter ditampilkan
-const memuatSesi = ref(false)
-const muatSesi = async (poliId: string) => {
-  const sid = poli(poliId)?.serverId || poliId
-  memuatSesi.value = true
-  sesiGagal.value = false
-  try {
-    const rows = await useSchedules().availability({ poli_id: sid, from: todayStr(), to: todayStr() })
-    if (f.poliId !== poliId) return
-    sesiServer.value = Object.fromEntries(rows.map((r) => [r.doctor.id, { mulai: r.start_time, selesai: r.end_time, kuota: r.total_quota, sisa: r.remaining, cuti: r.status === 'leave', pengganti: r.status === 'substitute', menggantikan: r.replaced_doctor?.name || '' }]))
-  } catch (e: any) { sesiServer.value = {}; sesiGagal.value = true; toast.err('Jadwal dokter tidak dapat dimuat: ' + e.message) } finally { memuatSesi.value = false }
-}
-watch(() => f.poliId, (id) => { sesiServer.value = {}; if (id) muatSesi(id) })
-// Dokter master di poli terpilih; hanya yang punya jadwal praktik hari ini (semua, bila jadwal gagal dimuat).
+// Dokter master di poli terpilih: yang berjadwal hari ini didahulukan (dengan kuota), yang tidak berjadwal tetap bisa dipilih.
 const dokters = computed(() =>
   f.poliId
-    ? db.doctors.filter((d: any) => d.poliId === f.poliId && d.aktif !== false).map((d: any) => ({ ...d, sesi: sesiServer.value[d.serverId || d.id] || null })).filter((d: any) => (d.sesi && !d.sesi.cuti) || (!d.sesi && sesiGagal.value))
+    ? db.doctors.filter((d: any) => d.poliId === f.poliId && d.aktif !== false).map((d: any) => ({ ...d, sesi: sessionFor(d.id, todayStr()) })).sort((a: any, b: any) => Number(!a.sesi) - Number(!b.sesi))
     : [])
+const penuh = (d: any) => !!d.sesi && d.sesi.sisa <= 0
 const pilihPoli = (id: string) => { f.poliId = id; f.doctorId = '' }
 const dokterTerpilih = computed(() => dokters.value.find((d: any) => d.id === f.doctorId))
 // Perkiraan dari kunjungan server yang sudah termuat; nomor final diterbitkan server (mulai 001 per poli per tanggal).
@@ -102,6 +87,7 @@ const validasi = (s: number): string => {
   if (s === 2) {
     if (!f.poliId) return 'Pilih poli terlebih dahulu'
     if (!f.doctorId) return 'Pilih dokter'
+    if (dokterTerpilih.value && penuh(dokterTerpilih.value)) return 'Kuota dokter sudah habis'
     if (sudahAda.value) return `Pasien sudah punya kunjungan aktif di poli ini hari ini (${sudahAda.value.antreanPoli.nomor})`
   }
   if (s === 3) {
@@ -240,15 +226,15 @@ const sepBisaKirim = computed(() => doneVisit.value?.sep && doneVisit.value.sep.
           <div v-if="f.poliId">
             <span class="lbl">Dokter</span>
             <div class="grid g3" style="margin-top: 8px">
-              <button v-for="d in dokters" :key="d.id" type="button" class="tile" style="min-height: 96px; font-size: 15px" :style="f.doctorId === d.id ? 'border-color: var(--teal); background: var(--teal-l)' : ''" @click="f.doctorId = d.id">
+              <button v-for="d in dokters" :key="d.id" type="button" class="tile" :disabled="penuh(d)" :class="{ off: penuh(d) }" style="min-height: 96px; font-size: 15px" :style="f.doctorId === d.id ? 'border-color: var(--teal); background: var(--teal-l)' : ''" @click="!penuh(d) && (f.doctorId = d.id)">
                 {{ d.nama }}
-                <small v-if="d.sesi">{{ d.sesi.mulai.replace(':', '.') }}–{{ d.sesi.selesai.replace(':', '.') }} · sisa kuota {{ d.sesi.sisa }}/{{ d.sesi.kuota }}</small>
-                <small v-else>{{ memuatSesi ? 'Memuat jadwal…' : 'Tidak ada jadwal hari ini' }}</small>
-                <span v-if="d.sesi?.pengganti" class="badge b-navy" style="align-self: flex-start">Dokter pengganti{{ d.sesi.menggantikan ? ' · menggantikan ' + d.sesi.menggantikan : '' }}</span>
-                <span v-if="d.sesi && d.sesi.sisa <= 0" class="badge b-err" style="align-self: flex-start">Kuota penuh</span>
+                <small v-if="d.sesi">{{ d.sesi.mulai }}–{{ d.sesi.selesai }} · sisa kuota {{ d.sesi.sisa }}/{{ d.sesi.kuota }}</small>
+                <small v-else>Tidak ada jadwal hari ini</small>
+                <span v-if="d.sesi?.cuti" class="badge b-warn" style="align-self: flex-start">Cuti{{ d.sesi.cuti.penggantiId ? ' (ada pengganti)' : '' }}</span>
+                <span v-else-if="penuh(d)" class="badge b-err" style="align-self: flex-start">Kuota penuh</span>
               </button>
             </div>
-            <p v-if="!dokters.length" class="muted" style="margin-top: 8px">{{ memuatSesi ? 'Memuat jadwal dokter…' : 'Tidak ada dokter yang praktik di poli ini hari ini. Atur jadwal di Master Jadwal & Kuota.' }}</p>
+            <p v-if="!dokters.length" class="muted" style="margin-top: 8px">Belum ada dokter di poli ini. Tambahkan dokter di menu Master poli &amp; dokter, tab Dokter.</p>
           </div>
           <div v-if="sudahAda" class="alert warn">Pasien sudah punya kunjungan aktif di poli ini hari ini ({{ sudahAda.antreanPoli.nomor }}).</div>
         </div>

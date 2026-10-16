@@ -1,28 +1,14 @@
 <script setup lang="ts">
-// KS-03 Pembayaran: Tunai / QRIS / VA (gateway simulasi) / Multi-payment. Data & pembayaran lewat /api/v1/cashier/bills/{visit_id}.
+// KS-03 Pembayaran: Tunai / QRIS / VA (gateway simulasi) / Multi-payment
 const route = useRoute()
+const { db, visit, patient, billTotals, pay } = useDb()
 const toast = useToast()
 
 const id = computed(() => String(route.params.id))
-const data = ref<any>(null)
-const loading = ref(true)
-const galat = ref('')
-watch(id, async () => {
-  loading.value = true
-  try {
-    data.value = await kasirApi.tagihan(id.value)
-    galat.value = ''
-  } catch (e: any) {
-    data.value = null
-    galat.value = pesanKasir(e)
-  } finally {
-    loading.value = false
-  }
-}, { immediate: true })
-const v = computed(() => data.value?.v)
-const pt = computed(() => data.value?.p)
-const bill = computed(() => data.value?.b)
-const totals = computed(() => bill.value?.totals || { total: 0, diskon: 0, net: 0, penjamin: 0, pasien: 0, selisih: 0, bayar: 0, sisa: 0 })
+const v = computed(() => visit(id.value))
+const pt = computed(() => (v.value ? patient(v.value.patientId) : null))
+const bill = computed(() => db.bills[id.value])
+const totals = computed(() => billTotals(id.value))
 const lunas = computed(() => bill.value?.status === 'lunas')
 const sisa = computed(() => totals.value.sisa)
 onMounted(() => { try { localStorage.setItem(KS_AKTIF_KEY, id.value) } catch {} })
@@ -74,24 +60,14 @@ const statusGateway = computed(() => {
   return va.paid ? 'VA dibayar · terkonfirmasi gateway' : `Menunggu transfer ke ${vaNo.value} · gunakan "Simulasi bayar VA"`
 })
 
-const memproses = ref(false)
-const kirim = async (parts: any[], okMsg: string) => {
-  memproses.value = true
-  try {
-    const r = await aksiKasir(() => kasirApi.bayar(id.value, parts), okMsg)
-    if (r) data.value = r
-  } finally {
-    memproses.value = false
-  }
-}
 const bayar = () => {
   if (!bisaBayar.value) return toast.err(kurangTunai.value ? 'Uang diterima kurang dari porsi tunai' : 'Pembayaran belum lengkap')
   const parts: any[] = []
   if (tunaiJumlah.value > 0) parts.push({ metode: 'Tunai', jumlah: tunaiJumlah.value, diterima: Number(diterima.value) })
   if (gatewayJumlah.value > 0) parts.push({ metode: gatewayMetode.value, jumlah: gatewayJumlah.value, ref: gatewayMetode.value === 'VA' ? vaNo.value : 'QR-' + bill.value.noInv })
-  return kirim(parts, kembalian.value > 0 ? `Pembayaran lunas. Kembalian ${fmtRp(kembalian.value)}` : 'Pembayaran lunas · nomor KW terbit')
+  toast.attempt(() => pay(id.value, parts), kembalian.value > 0 ? `Pembayaran lunas. Kembalian ${fmtRp(kembalian.value)}` : 'Pembayaran lunas · nomor KW terbit')
 }
-const selesaikanTanpaBayar = () => kirim([], 'Kunjungan lunas tanpa pembayaran pasien')
+const selesaikanTanpaBayar = () => toast.attempt(() => pay(id.value, []), 'Kunjungan lunas tanpa pembayaran pasien')
 const bayarTerakhir = computed(() => bill.value?.payments || [])
 </script>
 
@@ -117,7 +93,7 @@ const bayarTerakhir = computed(() => bill.value?.payments || [])
         <div v-else-if="totals.pasien === 0" class="panel">
           <h2>Tidak ada pembayaran pasien</h2>
           <p class="muted">Porsi pasien Rp0 ({{ labelSkema(bill.skema) }}). Konfirmasi untuk menyelesaikan kunjungan; nomor KW tetap diterbitkan.</p>
-          <div><button class="btn btn-primary" :disabled="memproses" @click="selesaikanTanpaBayar">Selesaikan tanpa pembayaran pasien</button></div>
+          <div><button class="btn btn-primary" @click="selesaikanTanpaBayar">Selesaikan tanpa pembayaran pasien</button></div>
         </div>
 
         <div v-else class="panel">
@@ -157,7 +133,7 @@ const bayarTerakhir = computed(() => bill.value?.payments || [])
           <div v-if="gatewayMetode" class="guide" :class="{ warn: !gatewayLunas }">{{ statusGateway }}</div>
 
           <div class="kl-actions">
-            <button class="btn btn-primary" :disabled="!bisaBayar || memproses" @click="bayar">{{ memproses ? 'Memproses…' : 'Bayar' }}</button>
+            <button class="btn btn-primary" :disabled="!bisaBayar" @click="bayar">Bayar</button>
             <button class="btn" disabled title="Tersedia setelah lunas">Cetak</button>
           </div>
           <div class="guide"><AppIcon name="info" :size="18" /> Server menghitung ulang sisa tagihan saat Bayar. Setelah lunas, kunjungan berubah selesai → lunas dan nomor KW diterbitkan.</div>
@@ -194,6 +170,5 @@ const bayarTerakhir = computed(() => bill.value?.payments || [])
       </div>
     </div>
   </div>
-  <div v-else-if="loading" class="card"><p class="muted">Memuat tagihan…</p></div>
-  <div v-else class="card"><h2>Tagihan tidak ditemukan</h2><p v-if="galat" class="muted">{{ galat }}</p><NuxtLink :to="'/kasir/' + id" class="btn">Kembali</NuxtLink></div>
+  <div v-else class="card"><h2>Tagihan tidak ditemukan</h2><NuxtLink :to="'/kasir/' + id" class="btn">Kembali</NuxtLink></div>
 </template>
