@@ -1,0 +1,15 @@
+# Deployment frontend SIMRS SPKD (Nuxt, mode SPA) di server.
+#   cp .env.example .env   # lalu isi NUXT_PUBLIC_API_BASE
+#   docker compose up -d --build
+# Backend (simrs-api) berjalan terpisah; tambahkan origin frontend ini ke CORS_ALLOWED_ORIGINS di .env backend.
+name: simrsv2
+
+services:
+  simrsv2:
+    build: .
+    image: simrsv2:latest
+    container_name: simrsv2
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${WEB_PORT:-3000}:3000"
