@@ -3,6 +3,8 @@
 const props = defineProps<{ visitId: string; editable: boolean }>()
 const emit = defineEmits(['next', 'back'])
 const { db, visit, patient, saveVitals, latestVitals } = useDb()
+const { isDokter } = useDokterQueue()
+const klinis = useKlinis()
 const toast = useToast()
 
 const versions = computed(() => db.vitals[props.visitId] || [])
@@ -12,7 +14,7 @@ const lokal = (iso?: string) => {
   const d = iso ? new Date(iso) : new Date()
   return `${d.getFullYear()}-${pad(d.getMonth() + 1, 2)}-${pad(d.getDate(), 2)}T${pad(d.getHours(), 2)}:${pad(d.getMinutes(), 2)}`
 }
-const blank = () => ({ td: '', nadi: '', rr: '', suhu: '', spo2: '', tb: '', bb: '', kesadaran: 'Compos mentis', nyeri: 0, risikoJatuh: 'tidak', waktu: lokal(), keluhan: visit(props.visitId)?.keluhan || '', alergi: patient(visit(props.visitId).patientId).alergi || '' })
+const blank = () => ({ td: '', nadi: '', rr: '', suhu: '', spo2: '', tb: '', bb: '', kesadaran: 'Compos mentis', nyeri: 0, risikoJatuh: 'tidak', levelJatuh: 'rendah', waktu: lokal(), keluhan: visit(props.visitId)?.keluhan || '', alergi: patient(visit(props.visitId).patientId).alergi || '' })
 const f = reactive<any>(blank())
 const alasan = ref('')
 const err = ref('')
@@ -24,6 +26,8 @@ const load = () => {
 }
 load()
 watch(() => props.visitId, load)
+// data server tiba setelah komponen tampil (workspace memuat ulang saat dibuka)
+watch(() => latest.value?.serverVersion, load)
 
 const num = (x: any) => (x === '' || x === null || x === undefined ? NaN : Number(x))
 const sistolDiastol = computed(() => {
@@ -57,23 +61,40 @@ const validate = () => {
     if (isNaN(num(f[k]))) return `${lbl} wajib diisi`
   }
   if (num(f.spo2) > 100) return 'SpO2 maksimal 100'
+  if (!f.tb !== !f.bb) return 'Tinggi dan berat badan diisi bersamaan'
+  if (visit(props.visitId)?.tipe === 'baru' && !(f.tb && f.bb)) return 'Pasien baru: tinggi dan berat badan wajib diisi'
   if (!String(f.keluhan || '').trim()) return 'Keluhan utama wajib diisi'
   if (isCorrection.value && !alasan.value.trim()) return 'Koreksi wajib menyertakan alasan'
   return ''
 }
-const simpan = (lanjut = false) => {
+const menyimpan = ref(false)
+const simpan = async (lanjut = false) => {
   err.value = validate()
   if (err.value) { toast.err(err.value); return false }
   const data = { ...f, nadi: num(f.nadi), rr: num(f.rr), suhu: num(f.suhu), spo2: num(f.spo2), tb: num(f.tb) || null, bb: num(f.bb) || null, nyeri: num(f.nyeri), bmi: bmi.value, waktu: new Date(f.waktu).toISOString() }
-  const ok = toast.attempt(() => saveVitals(props.visitId, data, alasan.value), isCorrection.value ? 'Koreksi vital sign tersimpan sebagai versi baru' : 'Vital sign tersimpan — status antrean: vital selesai')
-  if (ok) { alasan.value = ''; if (lanjut) emit('next') }
-  return !!ok
+  const koreksi = isCorrection.value
+  menyimpan.value = true
+  try {
+    // akun dokter ke server (server menghitung BMI & menandai nilai abnormal); role lain tetap lokal
+    if (isDokter.value) { await klinis.simpanVital(props.visitId, data, alasan.value); load() }
+    else saveVitals(props.visitId, data, alasan.value)
+  } catch (e: any) {
+    err.value = e.message
+    toast.err(e.message)
+    return false
+  } finally {
+    menyimpan.value = false
+  }
+  toast.ok(koreksi ? 'Koreksi vital sign tersimpan sebagai versi baru' : 'Vital sign tersimpan — status antrean: vital selesai')
+  alasan.value = ''
+  if (lanjut) emit('next')
+  return true
 }
 // "Lanjut ke SOAP": simpan dulu bila ada isian baru, lalu pindah tab
 const berubah = computed(() => {
   const l = latest.value
   if (!l) return !!(f.td || f.nadi || f.rr || f.suhu || f.spo2)
-  return ['td', 'nadi', 'rr', 'suhu', 'spo2', 'tb', 'bb', 'kesadaran', 'nyeri', 'risikoJatuh', 'keluhan', 'alergi'].some((k) => String(f[k] ?? '') !== String(l[k] ?? ''))
+  return ['td', 'nadi', 'rr', 'suhu', 'spo2', 'tb', 'bb', 'kesadaran', 'nyeri', 'risikoJatuh', 'levelJatuh', 'keluhan', 'alergi'].some((k) => String(f[k] ?? '') !== String(l[k] ?? ''))
 })
 const lanjut = () => (props.editable && berubah.value ? simpan(true) : emit('next'))
 </script>
@@ -104,7 +125,7 @@ const lanjut = () => (props.editable && berubah.value ? simpan(true) : emit('nex
           <div class="form-grid">
             <div class="field"><label for="v-kes">Kesadaran</label>
               <select id="v-kes" v-model="f.kesadaran" class="select" :disabled="!editable">
-                <option>Compos mentis</option><option>Apatis</option><option>Somnolen</option><option>Sopor</option><option>Koma</option>
+                <option>Compos mentis</option><option>Apatis</option><option>Delirium</option><option>Somnolen</option><option>Sopor</option><option>Koma</option>
               </select>
             </div>
             <div class="field"><label for="v-nyeri">Skala nyeri · 0–10</label>
@@ -115,6 +136,9 @@ const lanjut = () => (props.editable && berubah.value ? simpan(true) : emit('nex
             <div class="field"><label for="v-jatuh">Risiko jatuh</label>
               <select id="v-jatuh" v-model="f.risikoJatuh" class="select" :disabled="!editable"><option value="tidak">Tidak</option><option value="ya">Ya</option></select>
             </div>
+            <div v-if="f.risikoJatuh === 'ya'" class="field"><label class="req" for="v-jatuh-lv">Tingkat risiko jatuh</label>
+              <select id="v-jatuh-lv" v-model="f.levelJatuh" class="select" :disabled="!editable"><option value="rendah">Rendah</option><option value="sedang">Sedang</option><option value="tinggi">Tinggi</option></select>
+            </div>
             <div class="field"><label for="v-waktu">Waktu pengkajian</label><input id="v-waktu" v-model="f.waktu" class="input" type="datetime-local" :disabled="!editable"></div>
             <div class="field full"><label class="req" for="v-kel">Keluhan utama</label><textarea id="v-kel" v-model="f.keluhan" class="textarea" :disabled="!editable" /></div>
             <div class="field full"><label for="v-al">Riwayat alergi</label><input id="v-al" v-model="f.alergi" class="input" :disabled="!editable" placeholder="mis. Penisilin · ruam kulit"><span class="hint">Perubahan alergi langsung memperbarui banner pasien.</span></div>
@@ -123,10 +147,10 @@ const lanjut = () => (props.editable && berubah.value ? simpan(true) : emit('nex
 
         <div class="panel">
           <h2>Versi pengkajian</h2>
-          <p v-if="latest">Versi {{ latest.ver }} · {{ latest.by }} · {{ fmtJam(latest.at) }} · Tersimpan lokal</p>
+          <p v-if="latest">Versi {{ latest.ver }}<template v-if="latest.by"> · {{ latest.by }}</template> · {{ fmtJam(latest.at) }} · {{ latest.serverVersion !== undefined ? 'Tersimpan di server' : 'Tersimpan lokal' }}</p>
           <p v-else class="muted">Belum ada versi tersimpan.</p>
           <div v-if="versions.length > 1" class="muted" style="font-size: 12px">
-            <div v-for="x in [...versions].reverse().slice(1)" :key="x.ver">Versi {{ x.ver }} · {{ x.by }} · {{ fmtJam(x.at) }}<template v-if="x.alasan"> · alasan: {{ x.alasan }}</template></div>
+            <div v-for="x in [...versions].reverse().slice(1)" :key="x.ver">Versi {{ x.ver }}<template v-if="x.by"> · {{ x.by }}</template> · {{ fmtTgl(x.at) }} {{ fmtJam(x.at) }}<template v-if="x.alasan"> · alasan: {{ x.alasan }}</template></div>
           </div>
           <div class="field"><label :class="{ req: isCorrection && editable }" for="v-alasan">Alasan koreksi · wajib bila mengubah data tersimpan</label><input id="v-alasan" v-model="alasan" class="input" :disabled="!editable || !isCorrection" placeholder="Tuliskan alasan untuk membuat versi baru"></div>
           <div class="guide"><AppIcon name="info" :size="18" /> Nilai abnormal ditandai merah. Koreksi tidak menimpa versi sebelumnya dan selalu tercatat audit.</div>
@@ -137,8 +161,8 @@ const lanjut = () => (props.editable && berubah.value ? simpan(true) : emit('nex
     <p v-if="err" class="err-text">{{ err }}</p>
     <div class="kl-actions">
       <button class="btn" @click="emit('back')">Kembali</button>
-      <button class="btn" :disabled="!editable" @click="simpan(false)">{{ isCorrection ? 'Simpan koreksi' : 'Simpan' }}</button>
-      <button class="btn btn-primary" @click="lanjut">Lanjut ke SOAP</button>
+      <button class="btn" :disabled="!editable || menyimpan" @click="simpan(false)">{{ isCorrection ? 'Simpan koreksi' : 'Simpan' }}</button>
+      <button class="btn btn-primary" :disabled="menyimpan" @click="lanjut">Lanjut ke SOAP</button>
     </div>
   </div>
 </template>

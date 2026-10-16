@@ -1,6 +1,7 @@
 /**
  * Antrean poli milik akun Dokter / Perawat — satu sumber untuk GL-02 Beranda, KL-01 Worklist, dan panel "Unit aktif".
- * Akun dokter: GET /api/v1/queues (server hanya mengirim pasien dokter akun ini). Role lain: antrean lokal.
+ * Akun dokter: GET /api/v1/examinations (server hanya mengirim pasien dokter akun ini, lengkap dengan status
+ * kunjungan & antrean poli). Role lain: antrean lokal.
  */
 export function useDokterQueue() {
   const { db, poli, doctor, poliQueue } = useDb()
@@ -17,12 +18,12 @@ export function useDokterQueue() {
     if (!isDokter.value) return
     loading.value = true
     try {
-      const r = await useVisits().syncDokter(tanggal.value)
+      const r = await useKlinis().syncWorklist(tanggal.value)
       serverIds.value = r.rows.map((v: any) => v.id)
       syncSkip.value = r.skipped
       syncErr.value = ''
     } catch (e: any) {
-      syncErr.value = e instanceof ApiError && e.status === 403 ? 'Akun ini belum terhubung ke data dokter. Hubungi IT.' : e.message
+      syncErr.value = e.message
     } finally {
       loading.value = false
     }

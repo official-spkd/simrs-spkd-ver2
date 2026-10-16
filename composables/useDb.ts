@@ -27,18 +27,32 @@ function seed() {
     { id: 'poli-gg', kode: 'GG', nama: 'Gigi', ruang: 'Ruang 5', aktif: true },
   ]
   const doctors = [
-    { id: 'dr-maya', nama: 'dr. Maya Sari, Sp.PD', spesialis: 'Penyakit Dalam', poliId: 'poli-pd', sip: 'SIP-PD-0192', str: 'STR-3321', ihs: 'N10000001' },
+    { id: 'dr-maya', nama: 'dr. Maya Putri, Sp.PD', spesialis: 'Penyakit Dalam', poliId: 'poli-pd', sip: 'SIP-PD-0192', str: 'STR-3321', ihs: 'N10000001' },
     { id: 'dr-sari', nama: 'dr. Sari Wulandari, Sp.A', spesialis: 'Anak', poliId: 'poli-an', sip: 'SIP-AN-0457', str: 'STR-5502', ihs: 'N10000002' },
     { id: 'dr-andi', nama: 'dr. Andi Pratama', spesialis: 'Umum', poliId: 'poli-um', sip: 'SIP-UM-0881', str: 'STR-7710', ihs: '' },
     { id: 'dr-raka', nama: 'drg. Raka Putra', spesialis: 'Gigi', poliId: 'poli-gg', sip: 'SIP-GG-0220', str: 'STR-1204', ihs: 'N10000004' },
     { id: 'dr-lina', nama: 'dr. Lina Hartono, Sp.PD', spesialis: 'Penyakit Dalam', poliId: 'poli-pd', sip: 'SIP-PD-0310', str: 'STR-4418', ihs: '' },
+    { id: 'dr-yudha', nama: 'dr. Yudha Prakoso, Sp.PD', spesialis: 'Penyakit Dalam', poliId: 'poli-pd', sip: 'SIP-PD-0344', str: 'STR-6093', ihs: '' },
   ]
   const schedules: any[] = []
+  const efektif = t.slice(0, 8) + '01'
+  // Template IT-03: dr. Maya Putri Sen–Kam 08.00–12.00 (30), Jum 08.00–11.00 (24), Sab 08.00–10.00 (18), Min libur; dr. Yudha Sen–Sab 08.00–12.00 (30) sebagai pengganti.
+  const tplMaya: Record<number, [string, number]> = { 1: ['12:00', 10], 2: ['12:00', 10], 3: ['12:00', 10], 4: ['12:00', 10], 5: ['11:00', 8], 6: ['10:00', 6] }
   doctors.forEach((d, i) => {
     for (let h = 0; h < 7; h++) {
+      if (d.id === 'dr-maya' || d.id === 'dr-yudha') {
+        const m = d.id === 'dr-maya' ? tplMaya[h] : h >= 1 && h <= 6 ? ['12:00', 10] as [string, number] : undefined
+        if (!m) continue
+        const [selesai, per] = m
+        schedules.push({ id: `sch-${d.id}-${h}`, doctorId: d.id, hari: h, mulai: '08:00', selesai, kuota: per * 3, jkn: per * 2, mobile: per, nonMobile: per, nonJkn: per, efektif })
+        continue
+      }
       if (h === 0 && i > 2) continue
       if (d.id === 'dr-lina' && h % 2 === 0) continue
-      schedules.push({ id: `sch-${d.id}-${h}`, doctorId: d.id, hari: h, mulai: i % 2 ? '13:00' : '08:00', selesai: i % 2 ? '17:00' : '12:00', kuota: d.id === 'dr-raka' ? 10 : 15, jkn: d.id === 'dr-raka' ? 6 : 10 })
+      const kuota = d.id === 'dr-raka' ? 10 : 15
+      const jkn = d.id === 'dr-raka' ? 6 : 10
+      const mobile = Math.ceil(jkn / 2)
+      schedules.push({ id: `sch-${d.id}-${h}`, doctorId: d.id, hari: h, mulai: i % 2 ? '13:00' : '08:00', selesai: i % 2 ? '17:00' : '12:00', kuota, jkn, mobile, nonMobile: jkn - mobile, nonJkn: kuota - jkn, efektif })
     }
   })
   const mk = (id: string, rm: string, nik: string, nama: string, tgl: string, jk: string, hp: string, pj: Penjamin, kartu = '', alergi = '') => ({
@@ -118,7 +132,7 @@ function seed() {
     v5: { s: 'Gigi berlubang sisi kanan bawah.', fisik: 'Karies dentin gigi 46.', diagUtama: { kode: 'K02.1', nama: 'Karies dentin' }, diagSekunder: [], asesmen: 'Karies profunda.', p: 'Scaling dan tambal.', tindakLanjut: 'pulang', lampiran: [], signed: true, signedAt: at(7, 48), addenda: [] },
   }
   const orders: any = {
-    v4: [{ id: 'od1', visitId: 'v4', jenis: 'resep', nama: 'Amlodipine 10 mg tab', refId: 'o3', dosis: '10 mg', aturan: '1 x 1 sesudah makan', jumlah: 14, racikan: false, catatan: '', pelaksana: '' }, { id: 'od2', visitId: 'v4', jenis: 'tindakan', nama: 'EKG 12 lead', refId: 't-ekg', dosis: '', aturan: '', jumlah: 1, racikan: false, catatan: '', pelaksana: 'dr. Maya Sari, Sp.PD' }],
+    v4: [{ id: 'od1', visitId: 'v4', jenis: 'resep', nama: 'Amlodipine 10 mg tab', refId: 'o3', dosis: '10 mg', aturan: '1 x 1 sesudah makan', jumlah: 14, racikan: false, catatan: '', pelaksana: '' }, { id: 'od2', visitId: 'v4', jenis: 'tindakan', nama: 'EKG 12 lead', refId: 't-ekg', dosis: '', aturan: '', jumlah: 1, racikan: false, catatan: '', pelaksana: 'dr. Maya Putri, Sp.PD' }],
     v5: [{ id: 'od3', visitId: 'v5', jenis: 'tindakan', nama: 'Scaling gigi', refId: 't-scaling', dosis: '', aturan: '', jumlah: 1, racikan: false, catatan: '', pelaksana: 'drg. Raka Putra' }],
   }
   const bills: any = {
@@ -128,6 +142,20 @@ function seed() {
     { id: 'r1', kode: `BK-${t.slice(2).replace(/-/g, '')}-006`, patientId: 'p8', poliId: 'poli-pd', doctorId: 'dr-maya', tanggal: t, kanal: 'loket', status: 'booked', jam: '09.30', dibuat: at(7) },
     { id: 'r2', kode: `BK-${t.slice(2).replace(/-/g, '')}-007`, patientId: 'p7', poliId: 'poli-an', doctorId: 'dr-sari', tanggal: addDays(t, 3), kanal: 'apm', status: 'booked', jam: '13.30', dibuat: at(7) },
   ]
+  // Data demo IT-03 (minggu berjalan): terisi Selasa 23, Rabu 12, Jumat 6; Kamis dr. Maya cuti → dr. Yudha pengganti (terisi 8).
+  const senin = addDays(t, -((new Date(t + 'T00:00:00').getDay() + 6) % 7))
+  const isiSesi = (doctorId: string, tanggal: string, target: number) => {
+    const dr = doctors.find((d) => d.id === doctorId)!
+    const ada = visits.filter((v: any) => v.doctorId === doctorId && v.tanggal === tanggal && v.status !== 'dibatalkan').length + reservations.filter((r: any) => r.doctorId === doctorId && r.tanggal === tanggal && r.status === 'booked').length
+    for (let n = ada; n < target; n++) {
+      reservations.push({ id: `rd-${doctorId}-${tanggal}-${n}`, kode: `BK-${tanggal.slice(2).replace(/-/g, '')}-${doctorId.slice(3, 4)}${String(n).padStart(2, '0')}`, patientId: patients[n % patients.length].id, poliId: dr.poliId, doctorId, tanggal, kanal: n % 3 ? 'apm' : 'loket', status: 'booked', jam: `${String(8 + Math.floor((n % 12) / 3)).padStart(2, '0')}.${String((n % 3) * 20).padStart(2, '0')}`, dibuat: at(7) })
+    }
+  }
+  isiSesi('dr-maya', addDays(senin, 1), 23)
+  isiSesi('dr-maya', addDays(senin, 2), 12)
+  isiSesi('dr-maya', addDays(senin, 4), 6)
+  isiSesi('dr-yudha', addDays(senin, 3), 8)
+  const cuti = [{ id: 'cuti-seed1', doctorId: 'dr-maya', tanggal: addDays(senin, 3), penggantiId: 'dr-yudha', alasan: 'Cuti tahunan' }]
   // Antrean loket (A-xxx)
   const loket = [
     { id: 'lk1', nomor: 'A-010', kanal: 'loket', jam: at(7, 40), status: 'selesai', loket: 1, patientId: null },
@@ -143,7 +171,7 @@ function seed() {
   counters[`${t}|rsv`] = 7
   const users = [
     { id: 'u1', nama: 'Dina Rahma', username: 'fo', password: 'demo123', role: 'fo', unit: 'Loket 2 · Rawat Jalan', aktif: true, loginTerakhir: at(7), nakes: null },
-    { id: 'u2', nama: 'dr. Maya Sari, Sp.PD', username: 'dokter', password: 'demo123', role: 'dokter', unit: 'Poli Penyakit Dalam', poliId: 'poli-pd', doctorId: 'dr-maya', aktif: true, loginTerakhir: at(7), nakes: 'SIP-PD-0192 / STR-3321' },
+    { id: 'u2', nama: 'dr. Maya Putri, Sp.PD', username: 'dokter', password: 'demo123', role: 'dokter', unit: 'Poli Penyakit Dalam', poliId: 'poli-pd', doctorId: 'dr-maya', aktif: true, loginTerakhir: at(7), nakes: 'SIP-PD-0192 / STR-3321' },
     { id: 'u3', nama: 'Rina Kasir', username: 'kasir', password: 'demo123', role: 'kasir', unit: 'Kasir Rawat Jalan', aktif: true, loginTerakhir: at(7), nakes: null },
     { id: 'u4', nama: 'Pak Sofian', username: 'manajemen', password: 'demo123', role: 'mgmt', unit: 'Manajemen RS', aktif: true, loginTerakhir: at(6), nakes: null },
     { id: 'u5', nama: 'Tim IT RS', username: 'it', password: 'demo123', role: 'it', unit: 'Instalasi SIMRS', aktif: true, loginTerakhir: at(6), nakes: null },
@@ -169,7 +197,7 @@ function seed() {
     { id: 'ob4', at: at(8, 3), modul: 'VClaim', resource: 'SEP', ref: 'v2', status: 'terkirim', percobaan: 1, galat: '' },
   ]
   return {
-    version: 1, polis, doctors, schedules, cuti: [] as any[], patients, tarif, obat, icd10, visits, reservations, loket, counters, vitals, soap, orders, bills,
+    version: 1, polis, doctors, schedules, cuti, patients, tarif, obat, icd10, visits, reservations, loket, counters, vitals, soap, orders, bills,
     users, matrix, modules, devices, outbox, audit: [] as any[], queueLog: [] as any[], lastCall: null as any, shifts: [
       { id: 'sh1', kasir: 'Rina Kasir', mulai: at(7), selesai: null, closed: false },
     ], integrasi: { satuSehat: { nama: 'Satu Sehat (FHIR)', status: 'online', mode: 'mock', tokenExpiry: at(23) }, vclaim: { nama: 'BPJS VClaim', status: 'stub', mode: 'mock', tokenExpiry: at(23) }, antrol: { nama: 'BPJS Antrol', status: 'ditunda', mode: 'mock', tokenExpiry: null } },
