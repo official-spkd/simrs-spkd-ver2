@@ -22,6 +22,7 @@ let iv: any
 const keluar = (pesan: string) => {
   toast.warn(pesan)
   apm.state.value.patientId = ''
+  apm.state.value.srvPasien = null
   apm.state.value.tokenExp = 0
   navigateTo('/apm/identifikasi')
 }
@@ -49,6 +50,7 @@ const ya = () => {
 const bukan = () => {
   clearInterval(iv)
   apm.state.value.patientId = ''
+  apm.state.value.srvPasien = null
   apm.state.value.tokenExp = 0
   apm.state.value.bookingId = ''
   navigateTo('/apm/identifikasi')
@@ -62,7 +64,8 @@ const bukan = () => {
         <span class="ico"><AppIcon name="shield-check" :size="64" /></span>
         <p class="nm">{{ namaSamar }}</p>
         <p class="t28">Tanggal lahir: {{ lahir }}</p>
-        <p class="t24 muted">NIK {{ nikSamar }}</p>
+        <p v-if="pasien.nik" class="t24 muted">NIK {{ nikSamar }}</p>
+        <p v-else-if="pasien.rm" class="t24 muted">No. RM {{ pasien.rm }}</p>
         <p class="t24">Pastikan nama dan tanggal lahir sesuai.</p>
       </div>
       <div v-if="booking" class="apm-card bk">

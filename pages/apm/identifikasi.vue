@@ -3,7 +3,7 @@
 definePageMeta({ layout: 'kiosk' })
 const apm = useApm()
 const toast = useToast()
-const { db, takeLoketTicket, findBooking } = useDb()
+const { takeLoketTicket, findBooking } = useDb()
 
 const TIPE = [
   { v: 'nik', label: 'NIK', max: 16, judul: 'NIK · 16 digit', hint: 'Ketik 16 digit NIK pada KTP.' },
@@ -35,30 +35,39 @@ const status = computed(() => {
 })
 
 const cekWait = () => { wait.value = apm.waitSeconds() }
-const lanjut = () => {
+const mencari = ref(false)
+const lanjut = async () => {
   cekWait()
-  if (wait.value > 0 || !valid.value) return
+  if (wait.value > 0 || !valid.value || mencari.value) return
   apm.registerAttempt()
   const v = nilai.value
-  let pid = ''
   if (tipe.value === 'booking') {
+    // check-in reservasi / Mobile JKN: belum ada endpoint server → reservasi lokal
     const r = findBooking(v)
     if (!r) return (galat.value = 'Kode booking tidak tersedia di SIMRS.')
     if (r.tanggal !== todayStr()) return (galat.value = `Kode booking berlaku untuk ${fmtTglPanjang(r.tanggal)}. Check-in hanya pada hari pelayanan.`)
     if (r.status !== 'booked') return (galat.value = 'Kode booking ini sudah check-in atau tidak aktif. Silakan menuju loket.')
     apm.state.value.mode = 'booking'
     apm.state.value.bookingId = r.id
-    pid = r.patientId
-  } else {
-    const p = db.patients.find((x: any) => (tipe.value === 'nik' ? x.nik === v : tipe.value === 'bpjs' ? x.noKartu === v : x.rm === v.padStart(6, '0')))
-    if (!p) return (galat.value = 'Data tidak ditemukan. Periksa kembali nomor yang Anda ketik.')
+    apm.state.value.idTipe = tipe.value
+    apm.startToken(r.patientId)
+    return navigateTo('/apm/konfirmasi')
+  }
+  // pasien lama: GET /api/v1/apm/patients/lookup (tepat satu parameter)
+  const q = tipe.value === 'nik' ? { nik: v } : tipe.value === 'bpjs' ? { bpjs_number: v } : { medical_record_number: `RM-${v.padStart(6, '0')}` }
+  mencari.value = true
+  try {
+    const p = await apmApi.lookup(q)
     apm.state.value.mode = 'lama'
     apm.state.value.bookingId = ''
-    pid = p.id
+    apm.state.value.idTipe = tipe.value
+    apm.startToken(p.id, p)
+    navigateTo('/apm/konfirmasi')
+  } catch (e: any) {
+    galat.value = e instanceof ApiError && e.status === 404 ? 'Data tidak ditemukan. Periksa kembali nomor yang Anda ketik.' : apmPesan(e)
+  } finally {
+    mencari.value = false
   }
-  apm.state.value.idTipe = tipe.value
-  apm.startToken(pid)
-  navigateTo('/apm/konfirmasi')
 }
 const daftarBaru = () => { apm.reset(); apm.state.value.mode = 'baru'; navigateTo('/apm/baru') }
 const bantuan = () => {
@@ -92,7 +101,7 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); clearInter
         <div v-if="wait > 0" class="apm-alert warn">Terlalu banyak percobaan. Mohon tunggu {{ wait }} detik, atau minta bantuan petugas.</div>
         <div v-else-if="galat" class="apm-alert" role="alert">{{ galat }}</div>
         <div class="apm-row">
-          <button type="button" class="apm-btn pri" :disabled="!valid || wait > 0" @click="lanjut">Lanjut</button>
+          <button type="button" class="apm-btn pri" :disabled="!valid || wait > 0 || mencari" @click="lanjut">{{ mencari ? 'Mencari…' : 'Lanjut' }}</button>
           <button type="button" class="apm-btn" @click="hapus">Hapus</button>
         </div>
         <div class="apm-guide">{{ tipe === 'booking' ? 'Jika kode booking tidak tersedia di SIMRS, periksa kembali kode yang dimasukkan atau pilih metode identitas lain.' : 'Jika data tidak ditemukan, periksa kembali nomor yang dimasukkan, daftar sebagai pasien baru, atau minta bantuan loket.' }}</div>

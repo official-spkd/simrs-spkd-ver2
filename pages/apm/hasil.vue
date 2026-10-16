@@ -4,13 +4,24 @@ definePageMeta({ layout: 'kiosk' })
 const apm = useApm()
 const { db, visit, poli, doctor, patientOf } = useDb()
 
-const v = computed(() => (apm.state.value.visitId ? visit(apm.state.value.visitId) : null))
-const pl = computed(() => (v.value ? poli(v.value.poliId) : null))
-const dr = computed(() => (v.value ? doctor(v.value.doctorId) : null))
-const pt = computed(() => (v.value ? patientOf(v.value) : null))
-// perkiraan panggil: antrean menunggu di depan × 8 menit
+// Tiket dari POST /api/v1/apm/visits; alur check-in booking (lokal) tetap membaca kunjungan lokal.
+const tk = computed(() => apm.state.value.tiket)
+const v = computed(() => {
+  const t = tk.value
+  if (!t) return apm.state.value.visitId ? visit(apm.state.value.visitId) : null
+  return {
+    id: t.visit_id, tanggal: t.visit_date, jamDaftar: t.printed_at || new Date().toISOString(), status: 'terdaftar',
+    antreanPoli: { nomor: `${t.poli?.prefix_code}-${t.poli_queue_number}`, status: 'menunggu' }, sep: null,
+  }
+})
+const pl = computed(() => (tk.value ? { nama: tk.value.poli?.name, ruang: tk.value.poli?.room } : v.value ? poli(v.value.poliId) : null))
+const dr = computed(() => (tk.value ? { nama: tk.value.doctor?.name } : v.value ? doctor(v.value.doctorId) : null))
+const pt = computed(() => (tk.value ? { rm: tk.value.medical_record_number, nama: tk.value.patient_name } : v.value ? patientOf(v.value) : null))
+const nomorLoket = computed(() => (tk.value?.queue_number ? fmtNomorLoket(tk.value.queue_number) : ''))
+// perkiraan panggil: antrean menunggu di depan × 8 menit (tiket server: urutan nomor poli)
 const depan = computed(() => {
   if (!v.value) return 0
+  if (tk.value) return Math.max(0, Number(tk.value.poli_queue_number) - 1 || 0)
   return db.visits.filter((x: any) => x.poliId === v.value.poliId && x.tanggal === v.value.tanggal && x.status === 'terdaftar' && ['menunggu', 'dipanggil'].includes(x.antreanPoli.status) && x.jamDaftar < v.value.jamDaftar).length
 })
 const menit = computed(() => Math.max(5, depan.value * 8))
@@ -43,6 +54,7 @@ const selesai = () => { apm.reset(); navigateTo('/apm') }
           <p class="nomor">{{ v.antreanPoli.nomor }}</p>
           <p class="t28">Poli {{ pl?.nama }} · {{ dr?.nama }}</p>
           <p class="t24">{{ pl?.ruang }}</p>
+          <p v-if="nomorLoket" class="t24">Nomor antrean loket: <b>{{ nomorLoket }}</b> · tunggu panggilan di loket pendaftaran</p>
           <p class="t24">Perkiraan dipanggil: {{ jamPanggil }} · sekitar {{ menit }} menit</p>
           <p class="t20">Kunjungan: {{ v.status }} · Antrean poli: {{ v.antreanPoli.status }}</p>
           <p v-if="sep" class="t20 warn">BPJS: {{ sepText }} · Simulasi VClaim</p>
@@ -53,6 +65,7 @@ const selesai = () => { apm.reset(); navigateTo('/apm') }
           <p class="t24b">RS SPKD</p>
           <p>{{ fmtTgl(v.jamDaftar) }} · {{ fmtJam(v.jamDaftar) }}</p>
           <p class="tk-no">{{ v.antreanPoli.nomor }}</p>
+          <p v-if="nomorLoket">Loket {{ nomorLoket }}</p>
           <p class="t22b">Poli {{ pl?.nama }}</p>
           <p>{{ dr?.nama }}</p>
           <p>{{ pl?.ruang }}</p>
@@ -63,7 +76,7 @@ const selesai = () => { apm.reset(); navigateTo('/apm') }
           <p v-else>No. RM {{ pt?.rm }}</p>
         </div>
       </div>
-      <div class="apm-guide">Silakan menuju ruang tunggu Poli {{ pl?.nama }}.{{ sep && sep.status !== 'terbit' ? ' Pendaftaran tetap tersimpan walaupun SEP masih menunggu.' : '' }}</div>
+      <div class="apm-guide">{{ nomorLoket ? `Tunggu panggilan nomor ${nomorLoket} di loket pendaftaran, lalu menuju ruang tunggu Poli ${pl?.nama}.` : `Silakan menuju ruang tunggu Poli ${pl?.nama}.` }}{{ sep && sep.status !== 'terbit' ? ' Pendaftaran tetap tersimpan walaupun SEP masih menunggu.' : '' }}</div>
       <div class="apm-row no-print">
         <button type="button" class="apm-btn" @click="cetak">Cetak Karcis</button>
         <button type="button" class="apm-btn pri" @click="selesai">Selesai</button>
