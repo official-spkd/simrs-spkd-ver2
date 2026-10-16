@@ -162,12 +162,13 @@ const muatCuti = async () => {
     if (tanggal !== c.tanggal) return
     sesiCuti.value = rows.find((r) => r.status === 'active') || null
     const ids = new Set(tpls.map((x) => x.doctor.id))
-    penggantiOpsi.value = doctors.value.filter((d) => d.id !== c.doctorId && ids.has(d.id))
+    const poliId = doctors.value.find((d) => d.id === c.doctorId)?.poli?.id // pengganti dari poli yang sama agar pasien tetap dilayani di poli itu
+    penggantiOpsi.value = doctors.value.filter((d) => d.id !== c.doctorId && ids.has(d.id) && d.poli?.id === poliId)
   } catch (e: any) { toast.err(errMsg(e)) }
 }
 watch(() => [showC.value, c.doctorId, c.tanggal], muatCuti)
 const simpanC = async () => {
-  if (modePengganti.value && !c.penggantiId) return toast.err('Dokter pengganti wajib dipilih')
+  if ((modePengganti.value || !sesiCuti.value) && !c.penggantiId) return toast.err('Dokter pengganti wajib dipilih')
   saveC.value = true
   try {
     await svc.createException({ doctor_id: c.doctorId, date: c.tanggal, substitute_doctor_id: c.penggantiId, reason: c.alasan })
@@ -277,9 +278,9 @@ const simpanC = async () => {
           <select id="c-dok" v-model="c.doctorId" class="select"><option v-for="d in doctors" :key="d.id" :value="d.id">{{ d.name }}</option></select>
         </div>
         <div class="field"><label class="req" for="c-tgl">Tanggal</label><input id="c-tgl" v-model="c.tanggal" type="date" class="input" :min="t" /></div>
-        <div class="field full"><label :class="{ req: modePengganti || (sesiCuti?.filled || 0) > 0 }" for="c-pg">Dokter pengganti</label>
+        <div class="field full"><label :class="{ req: modePengganti || !sesiCuti || sesiCuti.filled > 0 }" for="c-pg">Dokter pengganti</label>
           <select id="c-pg" v-model="c.penggantiId" class="select"><option value="">Tanpa pengganti (sesi ditutup)</option><option v-for="d in penggantiOpsi" :key="d.id" :value="d.id">{{ d.name }}</option></select>
-          <span v-if="!sesiCuti" class="hint">Dokter tidak punya jadwal pada tanggal ini.</span>
+          <span v-if="!sesiCuti" class="hint">Dokter tidak punya jadwal pada tanggal ini. Pilih dokter pengganti agar poli tetap punya dokter hari itu.</span>
           <span v-else-if="sesiCuti.filled" class="hint">Sudah ada {{ sesiCuti.filled }} pasien/reservasi: wajib pilih dokter pengganti.</span>
           <span v-else-if="!penggantiOpsi.length" class="hint">Tidak ada dokter lain yang berpraktik pada tanggal ini.</span>
         </div>

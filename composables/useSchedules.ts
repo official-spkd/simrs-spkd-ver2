@@ -14,6 +14,12 @@ export interface ApiSession {
   total_quota: number; jkn_quota: number; non_jkn_quota: number; filled: number; remaining: number
   reason: string | null; exception_id: string | null; replaced_doctor: ApiDoctorRef | null
 }
+export interface ApiAvailability {
+  date: string; doctor: ApiDoctorRef; start_time: string; end_time: string; status: 'active' | 'substitute' | 'leave'
+  total_quota: number; filled: number; remaining: number
+  /** Dokter yang digantikan (cuti / tanpa jadwal); hanya pada status 'substitute'. */
+  replaced_doctor: ApiDoctorRef | null
+}
 export interface ScheduleForm { start_time: string; end_time: string; jkn_quota: number; non_jkn_quota: number; effective_date: string }
 export interface ExceptionForm { doctor_id: string; date: string; substitute_doctor_id: string; reason: string }
 
@@ -42,5 +48,9 @@ export function useSchedules() {
     })
   const removeException = (id: string) => api(`/api/v1/schedules/exceptions/${id}`, { method: 'DELETE' })
 
-  return { list, create, update, remove, sessions, createException, removeException }
+  /** Jam praktik & sisa kuota per dokter per tanggal untuk pendaftaran (role Front Office / superadmin). */
+  const availability = (q: { poli_id?: string; doctor_id?: string; from?: string; to?: string }) =>
+    api<ApiAvailability[]>('/api/v1/availability', { query: q })
+
+  return { list, create, update, remove, sessions, createException, removeException, availability }
 }

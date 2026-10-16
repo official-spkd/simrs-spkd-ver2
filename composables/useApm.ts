@@ -60,6 +60,8 @@ export const apmApi = {
   daftarPasien: async (body: any) => briefToPasien(await api('/api/v1/apm/patients', { method: 'POST', body })),
   polis: () => api<any[]>('/api/v1/apm/polis'),
   doctors: (poliId = '') => api<any[]>('/api/v1/apm/doctors', { query: { poli_id: poliId } }),
+  /** Jam praktik & sisa kuota HARI INI per dokter (apm.SessionBrief). Dokter tanpa sesi hari ini tidak ada di daftar. */
+  sessions: (poliId = '') => api<any[]>('/api/v1/apm/sessions', { query: { poli_id: poliId } }),
   /** Daftar kunjungan hari ini → tiket cetak (apm.Ticket). */
   daftarKunjungan: (body: any) => api<any>('/api/v1/apm/visits', { method: 'POST', body }),
 }

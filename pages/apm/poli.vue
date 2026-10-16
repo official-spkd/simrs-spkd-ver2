@@ -1,10 +1,9 @@
 <script setup lang="ts">
 // APM-06 Pilih poli & dokter (satu layar) — poli & dokter dari GET /api/v1/apm/polis & /apm/doctors,
-// pendaftaran lewat POST /api/v1/apm/visits. Server belum mengirim kuota/jadwal: jam praktik diambil dari
-// master jadwal lokal (IT-03) bila dokternya terpetakan, kuota tidak ditampilkan.
+// jam praktik & sisa kuota hari ini dari GET /api/v1/apm/sessions (informasi saja), pendaftaran lewat POST /api/v1/apm/visits.
+// Jadwal dan kuota tidak memblokir pendaftaran.
 definePageMeta({ layout: 'kiosk' })
 const apm = useApm()
-const { db, sessionFor } = useDb()
 const { pasien } = apm
 // ikon per kode poli (sesuai Figma); poli lain memakai stetoskop
 const IKON: Record<string, string> = { PD: 'heart-pulse', AN: 'baby', UM: 'stethoscope', GG: 'smile' }
@@ -14,22 +13,24 @@ const pesan = ref('')
 const busy = ref(false)
 const tglPanjang = fmtTglPanjang()
 const jam = (s: string) => s.replace(':', '.')
-const jadwal = (serverId: string) => {
-  const d = db.doctors.find((x: any) => x.serverId === serverId)
-  return d ? sessionFor(d.id, todayStr()) : null
-}
+const pertama = (p: any) => p?.ds[0]?.id || ''
 /** senyap = muat ulang berkala: tanpa indikator memuat & tanpa menimpa pesan pendaftaran. */
 const muat = async (senyap = false) => {
   if (!senyap) { memuat.value = true; pesan.value = '' }
   try {
-    const [ps, ds] = await Promise.all([apmApi.polis(), apmApi.doctors()])
+    const [ps, ds, ss] = await Promise.all([apmApi.polis(), apmApi.doctors(), apmApi.sessions().catch(() => null)]) // gagal dimuat → semua dokter ditampilkan (jadwal tidak diketahui)
+    const sesiDokter = new Map<string, any>((ss || []).map((s: any) => [s.doctor_id, { mulai: s.start_time, selesai: s.end_time, kuota: s.total_quota, sisa: s.remaining, cuti: s.status === 'leave', pengganti: s.replaced_doctor_name || '' }]))
     kartu.value = (ps || []).map((p: any) => ({
       id: p.id, kode: p.prefix_code, nama: p.name, ruang: p.room,
-      ds: (ds || []).filter((d: any) => d.poli?.id === p.id).map((d: any) => ({ id: d.id, nama: d.name, spesialis: d.specialization, poliId: p.id, sesi: jadwal(d.id) })),
-    })).filter((p: any) => p.ds.length)
+      ds: (ds || []).filter((d: any) => d.poli?.id === p.id && (!ss || (sesiDokter.has(d.id) && !sesiDokter.get(d.id).cuti))).map((d: any) => ({ id: d.id, nama: d.name, spesialis: d.specialization, poliId: p.id, sesi: sesiDokter.get(d.id) || null })),
+    })).filter((p: any) => p.ds.length).map((p: any) => {
+      // jumlah kuota & sisa seluruh dokter poli hari ini; kosong bila jadwal tidak bisa dimuat
+      const ada = p.ds.filter((d: any) => d.sesi)
+      return { ...p, kuota: ada.length ? ada.reduce((a: number, d: any) => a + d.sesi.kuota, 0) : null, sisa: ada.reduce((a: number, d: any) => a + d.sesi.sisa, 0) }
+    })
     // poli/dokter terpilih dihapus atau dinonaktifkan di server → pilih ulang
     if (apm.state.value.poliId && !dipilih.value) pilihPoli(kartu.value[0])
-    else if (dipilih.value && !dokter.value) apm.state.value.doctorId = dipilih.value.ds[0]?.id || ''
+    else if (dipilih.value && !dokter.value) apm.state.value.doctorId = pertama(dipilih.value)
   } catch (e: any) {
     if (!senyap) pesan.value = apmPesan(e)
   } finally {
@@ -55,7 +56,7 @@ const pilihPoli = (p: any) => {
   if (!p) return
   pesan.value = ''
   apm.state.value.poliId = p.id
-  apm.state.value.doctorId = p.ds[0]?.id || ''
+  apm.state.value.doctorId = pertama(p)
 }
 const pilihDokter = (d: any) => { pesan.value = ''; apm.state.value.doctorId = d.id }
 const kembali = () => navigateTo(apm.state.value.mode === 'baru' ? '/apm/baru' : '/apm/menu')
@@ -100,6 +101,7 @@ const lanjut = async () => {
       <button v-for="p in kartu" :key="p.id" type="button" class="apm-card poli" :class="{ on: dipilih?.id === p.id }" :aria-pressed="dipilih?.id === p.id" @click="pilihPoli(p)">
         <span class="ico"><AppIcon :name="IKON[p.kode] || 'stethoscope'" :size="40" /></span>
         <span class="nm">{{ p.nama }}{{ dipilih?.id === p.id ? ' ✓' : '' }}</span>
+        <span v-if="p.kuota !== null" class="kq">Kuota {{ p.kuota }} · Sisa <b :class="{ hab: p.sisa <= 0 }">{{ p.sisa }}</b></span>
       </button>
     </div>
     <p v-if="memuat" class="apm-lead">Memuat poli…</p>
@@ -111,7 +113,9 @@ const lanjut = async () => {
       <div class="dokters">
         <button v-for="d in dipilih.ds" :key="d.id" type="button" class="apm-card dok" :class="{ on: dokter?.id === d.id }" :aria-pressed="dokter?.id === d.id" @click="pilihDokter(d)">
           <span class="dn">{{ d.nama }}</span>
+          <span v-if="d.sesi?.pengganti" class="dg">Dokter pengganti · menggantikan {{ d.sesi.pengganti }}</span>
           <span v-if="d.sesi" class="dj">Jam praktik {{ jam(d.sesi.mulai) }}–{{ jam(d.sesi.selesai) }}</span>
+          <span v-if="d.sesi" class="dq">Kuota {{ d.sesi.kuota }} · Sisa <b :class="{ hab: d.sesi.sisa <= 0 }">{{ d.sesi.sisa }}</b></span>
           <span v-if="d.spesialis" class="dk">{{ d.spesialis }}</span>
           <span class="ds">{{ dokter?.id === d.id ? '✓ Dokter dipilih' : 'Sentuh untuk memilih' }}</span>
         </button>
@@ -137,7 +141,11 @@ const lanjut = async () => {
 .ico { color: #008d96; display: flex; }
 .poli.off .ico { color: #9aabb6; }
 .nm { font-size: 24px; font-weight: 600; color: #06345d; line-height: 1.45; }
-.habis { font-size: 18px; color: #647887; }
+.kq { font-size: 20px; color: #173348; }
+.dq { font-size: 24px; color: #173348; }
+.dg { font-size: 22px; font-weight: 600; color: #946017; background: #fff5df; border-radius: 8px; padding: 6px 12px; align-self: flex-start; }
+.kq b, .dq b { color: #1d7a46; }
+.kq b.hab, .dq b.hab { color: #b3261e; }
 .sub { font-size: 28px; font-weight: 600; color: #06345d; margin: 0; }
 .dokters { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
 .dok { min-height: 244px; padding: 28px; display: flex; flex-direction: column; gap: 20px; text-align: left; cursor: pointer; font: inherit; line-height: 1.45; }
@@ -148,7 +156,7 @@ const lanjut = async () => {
 .ds { font-size: 20px; font-weight: 600; color: #00747c; }
 .dok.off .dn, .dok.off .dj, .dok.off .dk, .dok.off .ds { color: #647887; }
 @media (max-width: 767px) {
-  .poli { min-height: 110px; } .nm { font-size: 20px; } .sub { font-size: 20px; }
-  .dok { min-height: 0; padding: 18px; gap: 10px; } .dn { font-size: 20px; } .dj, .dk { font-size: 17px; } .ds { font-size: 16px; }
+  .poli { min-height: 110px; } .nm { font-size: 20px; } .kq { font-size: 16px; } .sub { font-size: 20px; }
+  .dok { min-height: 0; padding: 18px; gap: 10px; } .dn { font-size: 20px; } .dj, .dk, .dq, .dg { font-size: 17px; } .ds { font-size: 16px; }
 }
 </style>
