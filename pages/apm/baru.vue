@@ -74,6 +74,7 @@ const simpan = async () => {
     apm.state.value.patientId = p.id
     apm.state.value.srvPasien = p
     apm.state.value.baruRm = p.rm
+    apm.state.value.pendamping = f.pjNama.trim()
     apm.state.value.confirmed = true
     apm.state.value.tokenExp = 0
     toast.ok(`Data tersimpan. No. RM Anda ${p.rm}`)

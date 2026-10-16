@@ -64,3 +64,17 @@ export const terbilang = (n: number): string => {
   const t = v === 0 ? 'nol' : eja(v).replace(/\s+/g, ' ').trim()
   return t.charAt(0).toUpperCase() + t.slice(1) + ' rupiah'
 }
+/** 09.10.08 */
+export const fmtJamDetik = (iso?: string | null) => {
+  if (!iso) return '-'
+  const d = new Date(iso)
+  return [d.getHours(), d.getMinutes(), d.getSeconds()].map((n) => String(n).padStart(2, '0')).join('.')
+}
+/** 13 Okt */
+export const fmtTglPendek = (iso?: string | null) => {
+  if (!iso) return '-'
+  const d = new Date(iso.length <= 10 ? iso + 'T00:00:00' : iso)
+  return `${d.getDate()} ${BULAN[d.getMonth()]}`
+}
+/** 13 Okt · 10.00 */
+export const fmtTglJam = (iso?: string | null) => (iso ? `${fmtTglPendek(iso)} · ${fmtJam(iso)}` : '-')

@@ -1,101 +1,181 @@
 <script setup lang="ts">
+// IT-07 Perangkat Terdaftar — otorisasi APM & display antrean. Display terikat ke papan antrean tertentu (bukan parameter URL);
+// kode registrasi sekali pakai berlaku 10 menit. Simulasi lokal (belum ada endpoint perangkat di backend).
 const { db } = useDb()
-const { registerDevice, activateDevice, revokeDevice, reissueDeviceCode, toggleOnline } = useAdmin()
+const { registerDevice, kodeBaru, aktivasi, cabut, heartbeat } = useIt()
 const toast = useToast()
-const lokets = [1, 2, 3, 4]
-const papan = computed(() => [
-  'VWR-01 Display Loket', 'VWR-02 Display Poli',
-  ...lokets.map((n) => `Loket ${n}`),
-  'Loket pendaftaran',
-])
+const TIPE: Record<string, string> = { APM: 'APM', Display: 'Display antrean' }
 
-const show = ref(false)
-const f = reactive<any>({ nama: '', tipe: 'APM', unit: '', terikat: '' })
-const tipeChange = () => { f.terikat = f.tipe === 'APM' ? 'Loket pendaftaran' : 'VWR-01 Display Loket' }
-const buka = () => { Object.assign(f, { nama: '', tipe: 'APM', unit: '', terikat: 'Loket pendaftaran' }); show.value = true }
-const opsiPapan = computed(() => (f.tipe === 'APM' ? ['Loket pendaftaran', ...lokets.map((n) => `Loket ${n}`)] : ['VWR-01 Display Loket', 'VWR-02 Display Poli']))
+const now = ref(Date.now())
+let iv: any
+onMounted(() => { heartbeat(); iv = setInterval(() => { now.value = Date.now(); heartbeat() }, 30000) })
+onBeforeUnmount(() => clearInterval(iv))
+
+const aktif = computed(() => db.devices.filter((d: any) => d.terdaftar))
+const online = computed(() => aktif.value.filter((d: any) => d.online))
+const offline = computed(() => aktif.value.filter((d: any) => !d.online))
+const menit = (iso: string | null) => (iso ? Math.max(0, Math.round((now.value - new Date(iso).getTime()) / 60000)) : 0)
+
+const fTipe = ref('')
+const fUnit = ref('')
+const fStatus = ref('')
+const unitOpsi = computed(() => [...new Set(db.devices.map((d: any) => d.unit))].sort() as string[])
+const status = (d: any) => (!d.terdaftar ? (d.kode ? 'menunggu' : 'dicabut') : d.online ? 'online' : 'offline')
+const rows = computed(() => db.devices.filter((d: any) => (!fTipe.value || d.tipe === fTipe.value) && (!fUnit.value || d.unit === fUnit.value) && (!fStatus.value || status(d) === fStatus.value)))
+const segarkan = () => { heartbeat(); now.value = Date.now(); toast.ok('Status perangkat diperbarui') }
+
+// ---- registrasi ----
+const papan = computed(() => [
+  'Registrasi RJ',
+  'Papan Loket 1–3',
+  ...db.polis.filter((p: any) => p.aktif).map((p: any) => `Poli ${p.nama} · ${p.ruang}`),
+])
+const blank = () => ({ nama: '', tipe: 'Display', unit: '', terikat: '' })
+const f = reactive<any>(blank())
 const baru = ref<any>(null)
-const simpan = () => {
+const pending = computed(() => (baru.value ? db.devices.find((d: any) => d.id === baru.value) : null))
+const kodeSisa = computed(() => (pending.value?.kodeExp ? Math.max(0, Math.ceil((new Date(pending.value.kodeExp).getTime() - now.value) / 60000)) : 0))
+watch(() => f.tipe, (t) => { if (t === 'APM') f.terikat = 'Registrasi RJ' })
+const formEl = ref<HTMLElement | null>(null)
+const mulai = () => { Object.assign(f, blank()); baru.value = null; formEl.value?.scrollIntoView({ behavior: 'smooth', block: 'start' }); nextTick(() => document.getElementById('pf-nama')?.focus()) }
+const daftar = () => {
   const d = toast.attempt(() => registerDevice({ ...f }))
-  if (!d) return
-  show.value = false
-  baru.value = { nama: d.nama, kode: d.kode }
-  toast.ok(`Perangkat ${d.nama} didaftarkan; menunggu aktivasi`)
+  if (d) { baru.value = d.id; toast.ok(`Kode registrasi ${d.kode} dibuat · berlaku 10 menit`) }
 }
-const kodeInput = reactive<Record<string, string>>({})
-const aktivasi = (d: any) => {
-  const r = toast.attempt(() => activateDevice(d.id, kodeInput[d.id] || ''), `${d.nama} aktif`)
-  if (r) kodeInput[d.id] = ''
+const kodeUlang = (id?: string) => {
+  const k = toast.attempt(() => kodeBaru(id || baru.value))
+  if (k) { if (id) baru.value = id; toast.ok(`Kode baru ${k} · berlaku 10 menit`) }
 }
-const cabut = (d: any) => {
-  if (!confirm(`Cabut pendaftaran ${d.nama}?${d.tipe === 'APM' ? ' APM yang dicabut tidak dapat memulai pendaftaran.' : ''}`)) return
-  toast.attempt(() => revokeDevice(d.id), `${d.nama} dicabut`)
+const showAkt = ref(false)
+const kodeIn = ref('')
+const aktivasiKode = () => {
+  const d = toast.attempt(() => aktivasi(baru.value, kodeIn.value))
+  if (d) { showAkt.value = false; kodeIn.value = ''; toast.ok(`${d.nama} aktif · token terikat ke ${d.terikat}`); baru.value = null; Object.assign(f, blank()) }
 }
-const kodeBaru = (d: any) => {
-  const k = toast.attempt(() => reissueDeviceCode(d.id))
-  if (k) { baru.value = { nama: d.nama, kode: k }; toast.ok('Kode baru diterbitkan') }
+const cabutAkses = (d: any) => {
+  if (!confirm(`Cabut akses ${d.nama}? Token perangkat diputus dan perangkat harus registrasi ulang.`)) return
+  if (toast.attempt(() => cabut(d.id))) toast.ok(`Akses ${d.nama} dicabut`)
 }
-const online = (d: any) => toast.attempt(() => toggleOnline(d.id), `${d.nama} ${d.online ? 'online' : 'offline'}`)
-const toggle = (d: any) => { toast.attempt(() => toggleOnline(d.id)) }
+const detail = ref<any>(null)
 </script>
 
 <template>
   <div>
-    <PageHead code="IT-07" role="IT / Superadmin" title="Perangkat Terdaftar" subtitle="APM dan display TV terikat ke papan antrean tertentu, bukan lewat parameter URL.">
-      <template #actions><button class="btn btn-primary" @click="buka">+ Daftarkan perangkat</button></template>
-    </PageHead>
-    <div class="alert info" style="margin-bottom: 16px">Kode pendaftaran bersifat sekali pakai (8 karakter). Perangkat baru berstatus belum terdaftar sampai kode dimasukkan pada perangkat (di sini: simulasi aktivasi). Pencabutan membuat APM menolak memulai pendaftaran.</div>
-    <div class="card">
-      <div class="table-wrap">
-        <table class="tbl rtable">
-          <thead><tr><th>Perangkat</th><th>Tipe</th><th>Unit</th><th>Terikat ke</th><th>Terdaftar</th><th>Online</th><th>Kode pendaftaran</th><th>Aksi</th></tr></thead>
-          <tbody>
-            <tr v-for="d in db.devices" :key="d.id">
-              <td data-label="Perangkat"><b>{{ d.nama }}</b></td>
-              <td data-label="Tipe"><span class="badge b-navy">{{ d.tipe }}</span></td>
-              <td data-label="Unit">{{ d.unit }}</td>
-              <td data-label="Terikat ke">{{ d.terikat }}</td>
-              <td data-label="Terdaftar"><span class="badge" :class="d.terdaftar ? 'b-ok' : 'b-warn'">{{ d.terdaftar ? 'Terdaftar' : 'Belum / dicabut' }}</span></td>
-              <td data-label="Online">
-                <button class="btn btn-sm" :disabled="!d.terdaftar" :title="'Ubah status online (simulasi)'" @click="toggle(d)"><StatusBadge :value="d.online ? 'online' : 'offline'" /></button>
-              </td>
-              <td data-label="Kode"><span v-if="d.kode" class="mono bold">{{ d.kode }}</span><span v-else class="muted">-</span></td>
-              <td data-label="Aksi">
-                <div class="row" style="gap: 6px">
-                  <template v-if="!d.terdaftar">
-                    <input v-if="d.kode" v-model="kodeInput[d.id]" class="input mono" style="width: 120px; min-height: 30px; padding: 4px 8px" placeholder="Kode" maxlength="8" :aria-label="'Kode aktivasi ' + d.nama" />
-                    <button v-if="d.kode" class="btn btn-sm btn-primary" @click="aktivasi(d)">Aktivasi</button>
-                    <button v-else class="btn btn-sm" @click="kodeBaru(d)">Kode baru</button>
-                  </template>
-                  <button v-else class="btn btn-sm btn-danger" @click="cabut(d)">Cabut</button>
-                </div>
-              </td>
-            </tr>
-            <tr v-if="!db.devices.length"><td colspan="8" class="empty">Belum ada perangkat</td></tr>
-          </tbody>
-        </table>
+    <PageHead code="IT-07" role="IT" title="Perangkat Terdaftar" subtitle="Otorisasi APM dan display antrean · Binding papan antrean dikelola server" />
+
+    <div class="grid g3">
+      <div class="kl-kpi"><small>Perangkat aktif</small><b>{{ aktif.length }}</b><span>{{ aktif.filter((d: any) => d.tipe === 'APM').length }} APM · {{ aktif.filter((d: any) => d.tipe === 'Display').length }} display</span></div>
+      <div class="kl-kpi"><small>Online</small><b>{{ online.length }}</b><span>Heartbeat &lt; 60 detik</span></div>
+      <div class="kl-kpi"><small>Offline</small><b>{{ offline.length }}</b><span>{{ offline[0] ? `${offline[0].nama} · sejak ${fmtJam(offline[0].lastSeen)}` : 'Semua perangkat terhubung' }}</span></div>
+    </div>
+
+    <div class="kl-cols" style="margin-top: 16px">
+      <div class="kl-col">
+        <div class="panel">
+          <h2>Daftar perangkat</h2>
+          <div class="kl-filters" style="margin: 0">
+            <label class="sr-only" for="pf-t">Tipe</label>
+            <select id="pf-t" v-model="fTipe" class="select"><option value="">Semua tipe</option><option value="APM">APM</option><option value="Display">Display</option></select>
+            <label class="sr-only" for="pf-u">Unit</label>
+            <select id="pf-u" v-model="fUnit" class="select"><option value="">Semua unit</option><option v-for="u in unitOpsi" :key="u">{{ u }}</option></select>
+            <label class="sr-only" for="pf-s">Status</label>
+            <select id="pf-s" v-model="fStatus" class="select"><option value="">Semua status</option><option value="online">Online</option><option value="offline">Offline</option><option value="menunggu">Menunggu kode</option><option value="dicabut">Dicabut</option></select>
+          </div>
+          <div class="kl-actions">
+            <button class="btn btn-primary" @click="mulai">+ Registrasi perangkat</button>
+            <button class="btn" @click="segarkan">Segarkan</button>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl rtable">
+              <thead><tr><th>Nama / tipe</th><th>Unit</th><th>Binding</th><th>Status</th><th>Terakhir terlihat</th><th>Kode / akses</th><th>Aksi</th></tr></thead>
+              <tbody>
+                <tr v-for="d in rows" :key="d.id" :class="{ sel: baru === d.id }">
+                  <td data-label="Nama / tipe">{{ d.nama }}<div>{{ d.tipe }}</div></td>
+                  <td data-label="Unit">{{ d.unit }}</td>
+                  <td data-label="Binding">{{ d.terikat }}</td>
+                  <td data-label="Status">
+                    <span v-if="status(d) === 'online'" class="badge b-ok">● Online</span>
+                    <span v-else-if="status(d) === 'offline'" class="badge b-warn">○ Offline</span>
+                    <span v-else-if="status(d) === 'menunggu'" class="badge b-navy">Menunggu kode</span>
+                    <span v-else class="badge b-mute">Dicabut</span>
+                  </td>
+                  <td data-label="Terakhir terlihat">{{ d.lastSeen ? fmtJamDetik(d.lastSeen) : '—' }}</td>
+                  <td data-label="Kode / akses"><template v-if="d.terdaftar">Terpakai sekali</template><span v-else-if="d.kode" class="mono">{{ d.kode }}</span><template v-else>—</template></td>
+                  <td data-label="Aksi">
+                    <button v-if="d.terdaftar" class="link" @click="cabutAkses(d)">Cabut akses</button>
+                    <button v-else class="link" @click="kodeUlang(d.id)">{{ d.kode ? 'Kode baru' : 'Registrasi ulang' }}</button>
+                  </td>
+                </tr>
+                <tr v-if="!rows.length"><td colspan="7" class="empty">Tidak ada perangkat</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="muted">{{ aktif.length }} perangkat aktif · Identitas perangkat dan binding tersimpan di database lokal.</p>
+          <div class="guide">Display terikat ke papan antrean tertentu, bukan parameter URL. Mencabut akses memutus token perangkat dan dicatat di audit.</div>
+        </div>
+
+        <div v-for="d in offline" :key="d.id" class="panel">
+          <h2>Perangkat offline · {{ d.nama }}</h2>
+          <div><span class="badge b-warn">Offline · {{ menit(d.lastSeen) }} menit</span></div>
+          <p>Periksa daya dan jaringan sebelum registrasi ulang. Pasien tetap dapat menggunakan {{ online.find((x: any) => x.tipe === d.tipe)?.nama || 'perangkat lain' }}{{ d.tipe === 'APM' ? ' atau loket' : '' }}.</p>
+          <div class="kl-actions">
+            <button class="btn" @click="detail = d">Lihat detail perangkat</button>
+            <button class="btn" @click="cabutAkses(d)">Cabut akses</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="kl-col">
+        <div ref="formEl" class="panel">
+          <h2>Registrasi perangkat baru</h2>
+          <template v-if="!pending">
+            <div class="field"><label class="req" for="pf-nama">Nama perangkat</label><input id="pf-nama" v-model="f.nama" class="input" maxlength="60" placeholder="mis. VWR Poli 03" /></div>
+            <div class="field"><label class="req" for="pf-tipe">Tipe</label><select id="pf-tipe" v-model="f.tipe" class="select"><option v-for="(l, k) in TIPE" :key="k" :value="k">{{ l }}</option></select></div>
+            <div class="field"><label class="req" for="pf-unit">Unit / lokasi</label><input id="pf-unit" v-model="f.unit" class="input" maxlength="60" placeholder="mis. Koridor timur · Lantai 1" /></div>
+            <div class="field"><label class="req" for="pf-papan">Papan antrean terikat</label>
+              <select id="pf-papan" v-model="f.terikat" class="select" :disabled="f.tipe === 'APM'"><option value="">Pilih papan</option><option v-for="p in papan" :key="p">{{ p }}</option></select>
+            </div>
+            <div class="kl-actions">
+              <button class="btn btn-primary" @click="daftar">Buat kode registrasi</button>
+              <button class="btn" @click="Object.assign(f, blank())">Batal</button>
+            </div>
+          </template>
+          <template v-else>
+            <p><b>{{ pending.nama }}</b> · {{ TIPE[pending.tipe] }}<br />{{ pending.unit }} · {{ pending.terikat }}</p>
+            <p style="font-weight: 600">Kode registrasi sekali pakai</p>
+            <p class="kode mono">{{ pending.kode }}</p>
+            <div><span class="badge" :class="kodeSisa ? 'b-warn' : 'b-err'">{{ kodeSisa ? `Belum dipakai · Berakhir ${fmtJam(pending.kodeExp)}` : 'Kedaluwarsa · buat kode baru' }}</span></div>
+            <p>Masukkan kode di perangkat yang akan didaftarkan. Kode hanya valid satu kali selama 10 menit.</p>
+            <div class="kl-actions">
+              <button class="btn btn-primary" :disabled="!kodeSisa" @click="showAkt = true">Daftarkan perangkat</button>
+              <button class="btn" @click="kodeUlang()">Buat kode baru</button>
+              <button class="btn" @click="baru = null">Batal</button>
+            </div>
+          </template>
+          <div class="guide">Setelah kode ditukar, token unik terikat ke perangkat dan papan yang dipilih.</div>
+        </div>
       </div>
     </div>
 
-    <AppModal v-model="show" title="Daftarkan perangkat">
-      <div class="form-grid">
-        <div class="field full"><label class="req" for="pf-nama">Nama perangkat</label><input id="pf-nama" v-model="f.nama" class="input" placeholder="mis. APM Lobi 02" /></div>
-        <div class="field"><label class="req" for="pf-tipe">Tipe</label>
-          <select id="pf-tipe" v-model="f.tipe" class="select" @change="tipeChange"><option>APM</option><option>Display</option></select>
-        </div>
-        <div class="field"><label class="req" for="pf-unit">Unit / lokasi</label><input id="pf-unit" v-model="f.unit" class="input" placeholder="mis. Lobi utama" /></div>
-        <div class="field full"><label class="req" for="pf-papan">Terikat ke papan antrean</label>
-          <select id="pf-papan" v-model="f.terikat" class="select"><option v-for="p in opsiPapan" :key="p" :value="p">{{ p }}</option></select>
-          <span class="hint">Perangkat hanya menampilkan papan yang diikat di sini.</span>
-        </div>
-      </div>
-      <template #footer><button class="btn" @click="show = false">Batal</button><button class="btn btn-primary" @click="simpan">Daftarkan</button></template>
+    <AppModal v-model="showAkt" title="Simulasi penukaran kode di perangkat">
+      <p class="muted" style="margin-bottom: 12px">Pada perangkat nyata, kode diketik di layar {{ pending?.nama }}. Untuk demo, masukkan kode di sini.</p>
+      <div class="field"><label class="req" for="pf-kode">Kode registrasi</label><input id="pf-kode" v-model="kodeIn" class="input mono" maxlength="9" placeholder="SPKD-XXXX" style="text-transform: uppercase" @keyup.enter="aktivasiKode" /></div>
+      <template #footer><button class="btn" @click="showAkt = false">Batal</button><button class="btn btn-primary" @click="aktivasiKode">Tukar kode</button></template>
     </AppModal>
 
-    <AppModal :model-value="!!baru" title="Kode pendaftaran" @update:model-value="baru = null">
-      <p>Masukkan kode berikut pada perangkat <b>{{ baru?.nama }}</b>. Kode hanya berlaku sekali dan ditampilkan juga di tabel sampai aktivasi.</p>
-      <p class="bignum mono" style="font-size: 44px; letter-spacing: 6px">{{ baru?.kode }}</p>
-      <template #footer><button class="btn btn-primary" @click="baru = null">Tutup</button></template>
+    <AppModal :model-value="!!detail" :title="detail?.nama || ''" @update:model-value="detail = null">
+      <dl class="kv">
+        <dt>Tipe</dt><dd>{{ detail?.tipe }}</dd>
+        <dt>Unit</dt><dd>{{ detail?.unit }}</dd>
+        <dt>Binding</dt><dd>{{ detail?.terikat }}</dd>
+        <dt>Status</dt><dd>{{ detail ? status(detail) : '' }}</dd>
+        <dt>Terakhir terlihat</dt><dd>{{ detail?.lastSeen ? fmtWaktu(detail.lastSeen) + ' (' + menit(detail.lastSeen) + ' menit lalu)' : '—' }}</dd>
+      </dl>
+      <template #footer><button class="btn btn-primary" @click="detail = null">Tutup</button></template>
     </AppModal>
   </div>
 </template>
+
+<style scoped>
+.kode { font-size: 32px !important; font-weight: 600; color: var(--navy); letter-spacing: .02em; }
+</style>

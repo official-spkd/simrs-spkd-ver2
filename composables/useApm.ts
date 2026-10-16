@@ -20,9 +20,23 @@ export type ApmState = {
   srvPasien: any
   /** tiket dari POST /apm/visits */
   tiket: any
+  /** nama penanggung jawab/pendamping — wajib dikirim server untuk pasien < 18 tahun */
+  pendamping: string
 }
 
-const emptyState = (): ApmState => ({ mode: '', idTipe: 'nik', bookingId: '', patientId: '', tokenExp: 0, confirmed: false, poliId: '', doctorId: '', visitId: '', baruRm: '', srvPasien: null, tiket: null })
+const emptyState = (): ApmState => ({ mode: '', idTipe: 'nik', bookingId: '', patientId: '', tokenExp: 0, confirmed: false, poliId: '', doctorId: '', visitId: '', baruRm: '', srvPasien: null, tiket: null, pendamping: '' })
+
+// Sesi alur APM disalin ke sessionStorage supaya reload tidak membuang langkah pasien.
+// Hanya berlaku di tab ini; dihapus saat reset (Selesai / idle 90 dtk / mulai baru).
+const SESI_KEY = 'spkd-apm-sesi'
+const bacaSesi = (): ApmState => {
+  try {
+    const s = JSON.parse(sessionStorage.getItem(SESI_KEY) || 'null')
+    if (s) return { ...emptyState(), ...s }
+  } catch {}
+  return emptyState()
+}
+let sesiDiawasi = false
 
 const JK: Record<string, string> = { Male: 'L', Female: 'P' }
 const PAYER: Record<string, string> = { General: 'Umum', BPJS: 'BPJS', Insurance: 'Asuransi' }
@@ -67,7 +81,12 @@ export function useKioskClock() {
 }
 
 export function useApm() {
-  const state = useState<ApmState>('apm', emptyState)
+  const state = useState<ApmState>('apm', bacaSesi)
+  if (import.meta.client && !sesiDiawasi) {
+    sesiDiawasi = true
+    // scope terlepas: tetap menyimpan walau halaman APM yang pertama memanggilnya sudah ditutup
+    effectScope(true).run(() => watch(state, (v) => { try { sessionStorage.setItem(SESI_KEY, JSON.stringify(v)) } catch {} }, { deep: true }))
+  }
   const attempts = useState<number[]>('apm-attempts', () => [])
   const lastStaff = useState<number>('apm-staff', () => 0)
   const lastTicket = useState<number>('apm-ticket', () => 0)

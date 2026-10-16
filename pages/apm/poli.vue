@@ -18,29 +18,39 @@ const jadwal = (serverId: string) => {
   const d = db.doctors.find((x: any) => x.serverId === serverId)
   return d ? sessionFor(d.id, todayStr()) : null
 }
-const muat = async () => {
-  memuat.value = true
-  pesan.value = ''
+/** senyap = muat ulang berkala: tanpa indikator memuat & tanpa menimpa pesan pendaftaran. */
+const muat = async (senyap = false) => {
+  if (!senyap) { memuat.value = true; pesan.value = '' }
   try {
     const [ps, ds] = await Promise.all([apmApi.polis(), apmApi.doctors()])
     kartu.value = (ps || []).map((p: any) => ({
       id: p.id, kode: p.prefix_code, nama: p.name, ruang: p.room,
       ds: (ds || []).filter((d: any) => d.poli?.id === p.id).map((d: any) => ({ id: d.id, nama: d.name, spesialis: d.specialization, poliId: p.id, sesi: jadwal(d.id) })),
     })).filter((p: any) => p.ds.length)
+    // poli/dokter terpilih dihapus atau dinonaktifkan di server → pilih ulang
+    if (apm.state.value.poliId && !dipilih.value) pilihPoli(kartu.value[0])
+    else if (dipilih.value && !dokter.value) apm.state.value.doctorId = dipilih.value.ds[0]?.id || ''
   } catch (e: any) {
-    pesan.value = apmPesan(e)
+    if (!senyap) pesan.value = apmPesan(e)
   } finally {
     memuat.value = false
   }
 }
+// pasien < 18 tahun: server mewajibkan responsible_person (nama pendamping)
+const anak = computed(() => !!pasien.value?.tglLahir && umur(pasien.value.tglLahir) < 18)
+const pendampingOk = computed(() => !anak.value || (apm.state.value.pendamping || '').trim().length >= 3)
 const dipilih = computed(() => kartu.value.find((p: any) => p.id === apm.state.value.poliId) || null)
 const dokter = computed(() => dipilih.value?.ds.find((d: any) => d.id === apm.state.value.doctorId) || null)
+// poli/dokter baru dari dashboard IT muncul tanpa reload
+let iv: any
 onMounted(async () => {
   if (!pasien.value || !apm.state.value.confirmed) return navigateTo(apm.state.value.mode === 'baru' ? '/apm/baru' : '/apm/identifikasi')
   await muat()
   // pilih otomatis poli pertama agar daftar dokter langsung tampil
   if (!dipilih.value) pilihPoli(kartu.value[0])
+  iv = setInterval(() => { if (!busy.value) muat(true) }, 30000)
 })
+onBeforeUnmount(() => clearInterval(iv))
 const pilihPoli = (p: any) => {
   if (!p) return
   pesan.value = ''
@@ -56,12 +66,14 @@ const lanjut = async () => {
   const pt = pasien.value
   if (pt.penjamin === 'BPJS' && !/^\d{13}$/.test(pt.noKartu || '')) return (pesan.value = 'No. kartu BPJS Anda belum tercatat. Silakan menuju loket pendaftaran.')
   if (pt.penjamin === 'Asuransi') return (pesan.value = 'Penjamin Asuransi dilayani di loket. Silakan ambil nomor loket.')
+  if (!pendampingOk.value) return (pesan.value = 'Pasien di bawah 18 tahun: isi nama pendamping / penanggung jawab terlebih dahulu.')
   busy.value = true
   try {
     const t = await apmApi.daftarKunjungan({
       patient_id: pt.id, poli_id: d.poliId, doctor_id: d.id,
       penjamin: pt.penjamin === 'BPJS' ? 'bpjs' : 'umum',
       ...(pt.penjamin === 'BPJS' ? { bpjs_card_number: pt.noKartu } : {}),
+      ...(anak.value ? { responsible_person: (apm.state.value.pendamping || '').trim() } : {}),
       // kiosk tidak menanyakan jenis kunjungan & keluhan; dilengkapi perawat di pengkajian awal (KL-03)
       visit_type: 'baru', chief_complaint: 'Pendaftaran mandiri (APM)',
     })
@@ -71,7 +83,7 @@ const lanjut = async () => {
   } catch (e: any) {
     const m = apmPesan(e)
     if (e instanceof ApiError && e.status === 409) pesan.value = 'Anda sudah terdaftar di poli ini hari ini. Silakan menuju loket bila nomor antrean Anda hilang.'
-    else if (/responsible/i.test(m)) pesan.value = 'Pasien di bawah 18 tahun wajib didampingi penanggung jawab. Silakan menuju loket pendaftaran.'
+    else if (/responsible/i.test(m)) pesan.value = 'Pasien di bawah 18 tahun: periksa kembali nama pendamping / penanggung jawab.'
     else pesan.value = m
   } finally {
     busy.value = false
@@ -92,6 +104,7 @@ const lanjut = async () => {
     </div>
     <p v-if="memuat" class="apm-lead">Memuat poli…</p>
     <div v-else-if="!kartu.length && !pesan" class="apm-alert warn">Tidak ada poli yang buka hari ini. Silakan menuju loket.</div>
+    <button type="button" class="apm-btn muat" :disabled="memuat" @click="muat()">Muat ulang daftar poli</button>
 
     <template v-if="dipilih">
       <p class="sub">Dokter Poli {{ dipilih.nama }} · {{ tglPanjang }}</p>
@@ -104,14 +117,19 @@ const lanjut = async () => {
         </button>
       </div>
     </template>
+    <div v-if="anak" class="apm-field">
+      <label for="p-pendamping">Nama pendamping / penanggung jawab * · pasien di bawah 18 tahun</label>
+      <input id="p-pendamping" v-model="apm.state.value.pendamping" class="apm-input" maxlength="150" autocomplete="off" placeholder="Nama orang tua / wali yang mendampingi">
+    </div>
     <div class="apm-guide">Pendaftaran tercatat langsung di sistem, sama seperti mendaftar di loket.</div>
     <div class="apm-row">
       <button type="button" class="apm-btn" @click="kembali">‹ Kembali</button>
-      <button type="button" class="apm-btn pri" :disabled="!dokter || busy" @click="lanjut">{{ busy ? 'Memproses…' : 'Pilih dokter & lanjut →' }}</button>
+      <button type="button" class="apm-btn pri" :disabled="!dokter || busy || !pendampingOk" @click="lanjut">{{ busy ? 'Memproses…' : 'Pilih dokter & lanjut →' }}</button>
     </div>
   </ApmShell>
 </template>
 <style scoped>
+.muat { align-self: flex-start; min-height: 48px; font-size: 18px; }
 .polis { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
 .poli { min-height: 160px; padding: 24px; display: flex; flex-direction: column; align-items: flex-start; gap: 16px; cursor: pointer; font: inherit; text-align: left; }
 .poli.on { background: #eaf6f5; border: 2px solid #008d96; padding: 23px; }

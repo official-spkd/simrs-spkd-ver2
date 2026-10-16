@@ -12,10 +12,11 @@ const q = ref('')
 const unread = computed(() => db.notifications.filter((n: any) => !n.dibaca).length)
 const ssOk = computed(() => db.integrasi.satuSehat.status === 'online')
 const canSearch = computed(() => ['fo', 'dokter', 'kasir', 'it', 'superadmin'].includes(user.value?.role))
+const isIt = computed(() => user.value?.role === 'it' || user.value?.role === 'superadmin')
 const roleLabel = computed(() => (user.value ? ROLE_LABEL[user.value.role as Role] : ''))
 // Dokter / Perawat: unit aktif = poli penugasan dokter akun
 const { poliAktif } = useDokterQueue()
-const unitAktif = computed(() => user.value?.unit || (user.value?.role === 'dokter' && poliAktif.value ? 'Poli ' + poliAktif.value.nama : user.value?.role === 'kasir' ? 'Kasir Rawat Jalan' : ''))
+const unitAktif = computed(() => user.value?.unit || (user.value?.role === 'dokter' && poliAktif.value ? 'Poli ' + poliAktif.value.nama : user.value?.role === 'kasir' ? 'Kasir Rawat Jalan' : isIt.value ? 'Administrasi Sistem' : ''))
 const navAktif = (n: NavItem) => !!n.match && new RegExp(n.match).test(route.path)
 
 watch(() => route.fullPath, () => { open.value = false; notifOpen.value = false })
@@ -35,6 +36,8 @@ const crumbs = computed(() => {
   // Dokter / Perawat: format breadcrumb sesuai Figma (Rawat jalan / Dokter / Perawat / Halaman)
   if (user.value?.role === 'dokter') return ['Rawat jalan', 'Dokter / Perawat', cur?.label || 'Halaman']
   if (user.value?.role === 'kasir') return ['Rawat jalan', 'Kasir', cur?.label || 'Halaman']
+  // IT / Superadmin: Rawat jalan / IT / Judul halaman (Figma IT-01..08)
+  if (isIt.value) return route.path === '/' ? ['Rawat jalan', 'IT / Superadmin', 'Beranda'] : ['Rawat jalan', 'IT', cur?.crumb || cur?.label || 'Halaman']
   return ['Rawat jalan', cur?.label || 'Halaman']
 })
 const readAll = () => { db.notifications.forEach((n: any) => (n.dibaca = true)) }

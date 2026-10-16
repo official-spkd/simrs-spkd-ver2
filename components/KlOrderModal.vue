@@ -37,8 +37,8 @@ watch(() => props.modelValue, (o) => {
 watch(tab, (k) => nextTick(() => document.getElementById(k === 'resep' ? 'o-q' : 't-q')?.focus()))
 
 const harga = (kind: 'obat' | 'tarif', id: string) => hargaDari(kind, id, v.value.penjamin)
-const obatList = computed(() => db.obat.filter((o: any) => o.nama.toLowerCase().includes(qObat.value.trim().toLowerCase())).slice(0, 8))
-const tindList = computed(() => db.tarif.filter((x: any) => x.kategori === 'Tindakan' && x.nama.toLowerCase().includes(qTind.value.trim().toLowerCase())).slice(0, 8))
+const obatList = computed(() => db.obat.filter((o: any) => !o.nonaktif?.[v.value.penjamin] && o.nama.toLowerCase().includes(qObat.value.trim().toLowerCase())).slice(0, 8))
+const tindList = computed(() => db.tarif.filter((x: any) => x.kategori === 'Tindakan' && !x.nonaktif?.[v.value.penjamin] && x.nama.toLowerCase().includes(qTind.value.trim().toLowerCase())).slice(0, 8))
 const pilihObat = (o: any) => { obat.value = o; qObat.value = o.nama; fokusObat.value = false }
 const pilihTind = (x: any) => { tind.value = x; qTind.value = x.nama; fokusTind.value = false }
 const lepas = (k: 'o' | 't') => setTimeout(() => (k === 'o' ? (fokusObat.value = false) : (fokusTind.value = false)), 150)

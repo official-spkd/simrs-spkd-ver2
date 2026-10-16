@@ -66,7 +66,12 @@ const save = async (thenVisit: boolean) => {
     navigateTo(thenVisit ? '/kunjungan/baru?pasien=' + p.id : '/pasien/' + p.id)
   } catch (e: any) {
     const m: string = e.message || String(e)
-    if (e instanceof ApiError && e.status === 409) {
+    if (e instanceof ApiError && e.status === 409 && /bpjs/i.test(m)) {
+      // No. kartu BPJS unik di server
+      banner.value = { kind: 'err', msg: 'No. kartu BPJS sudah terdaftar atas pasien lain. Cari pasien tersebut atau periksa kembali nomornya.' }
+      tab.value = 'penjamin'
+      errs.noKartu = 'No. kartu BPJS sudah terdaftar'
+    } else if (e instanceof ApiError && e.status === 409) {
       const o = await list({ search: f.nik, limit: 1 }).then((r) => r.rows.find((x: any) => x.nik === f.nik)).catch(() => null)
       banner.value = { kind: 'err', msg: o ? `NIK sudah terdaftar atas nama ${o.nama}.` : 'NIK sudah terdaftar.', patientId: o?.id }
       tab.value = 'demografi'

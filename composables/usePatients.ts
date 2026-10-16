@@ -10,7 +10,7 @@ const KAWIN: Record<string, string> = { Single: 'Belum kawin', Married: 'Kawin',
 const MARITAL: Record<string, string> = { 'Belum kawin': 'Single', Kawin: 'Married', 'Cerai hidup': 'Divorced', 'Cerai mati': 'Widowed' }
 
 /** Field yang belum ada di backend; hanya disimpan di cache lokal browser ini. */
-export const LOCAL_ONLY = ['noKartu', 'asuransi', 'noPolis'] as const
+export const LOCAL_ONLY = ['asuransi', 'noPolis'] as const
 
 /** NIK: 16 digit, kode provinsi 11–94, tanggal lahir DDMMYY (perempuan: DD + 40). Server tetap penentu akhir. */
 export const validNik = (nik: string) => {
@@ -35,6 +35,7 @@ const SERVER_FIELD: [RegExp, string, string][] = [
   [/^emergency_contact_phone\b/, 'pjHp', 'No. HP penanggung jawab harus nomor seluler Indonesia (mis. 081234567890)'],
   [/^phone\b/, 'hp', 'No. HP harus nomor seluler Indonesia (mis. 081234567890)'],
   [/^birth_date\b/, 'tglLahir', 'Tanggal lahir tidak valid'],
+  [/^bpjs_number\b/, 'noKartu', 'No. kartu BPJS harus 13 digit angka'],
   [/^email\b/, 'email', 'Email tidak valid'],
 ]
 /** Pecah pesan validasi server ("nik is …; phone must …") menjadi error per kolom form. */
@@ -75,7 +76,8 @@ export const pasienFromApi = (p: any, old: any = {}) => ({
   pjHp: p.emergency_contact_phone || '',
   penjamin: PENJAMIN[p.payer] || 'Umum',
   alergi: p.allergies || '',
-  noKartu: old.noKartu || '',
+  // No. kartu BPJS kini disimpan server (bpjs_number); data lama yang belum punya tetap memakai salinan lokal
+  noKartu: p.bpjs_number || old.noKartu || '',
   asuransi: old.asuransi || '',
   noPolis: old.noPolis || '',
   createdAt: p.created_at,
@@ -102,6 +104,8 @@ const toApi = (f: any) => {
     allergies: (f.alergi || '').trim(),
   }
   // Kolom ber-enum / ber-min-length dikirim hanya bila diisi, supaya validasi server tidak menolak string kosong.
+  // PUT mengganti semua field: No. BPJS harus ikut dikirim agar tidak terhapus
+  if (f.penjamin === 'BPJS' && f.noKartu) body.bpjs_number = f.noKartu
   if (f.statusKawin) body.marital_status = MARITAL[f.statusKawin]
   if (f.golDarah) body.blood_type = f.golDarah
   if ((f.alamatDomisili || '').trim()) body.domicile_address = f.alamatDomisili.trim()

@@ -421,6 +421,11 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
   .panel { padding: 16px; }
 }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.link { border: 0; background: none; padding: 0; color: var(--teal-d); font: inherit; font-size: 13px; cursor: pointer; text-align: left; }
+.link:hover { text-decoration: underline; }
+.link:disabled { color: var(--muted); cursor: default; text-decoration: none; }
+.json-box { background: #f3f6f8; border-radius: 8px; padding: 16px; margin: 0; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--navy); white-space: pre-wrap; word-break: break-word; overflow: auto; max-height: 480px; }
+.kl-kpi b.txt { font-size: 28px; }
 
 /* ---------- APM (Figma APM-01..08) ---------- */
 .apm-h1 { font-size: 40px; font-weight: 600; color: #06345d; line-height: 1.45; margin: 0; }

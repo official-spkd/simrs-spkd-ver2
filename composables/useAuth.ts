@@ -5,13 +5,24 @@ export const ROLE_LABEL: Record<Role, string> = {
   dokter: 'Dokter / Perawat',
   kasir: 'Kasir',
   mgmt: 'Management RS',
-  it: 'IT Support',
-  superadmin: 'Superadmin',
+  it: 'IT',
+  superadmin: 'IT / Superadmin',
 }
-export const ROLE_SHORT: Record<Role, string> = { fo: 'FO / FRONT OFFICE / ADMIN', dokter: 'KL / DOKTER / PERAWAT', kasir: 'KS / KASIR', mgmt: 'MANAGEMENT RS', it: 'IT SUPPORT', superadmin: 'SUPERADMIN' }
+export const ROLE_SHORT: Record<Role, string> = { fo: 'FO / FRONT OFFICE / ADMIN', dokter: 'KL / DOKTER / PERAWAT', kasir: 'KS / KASIR', mgmt: 'MANAGEMENT RS', it: 'IT / IT', superadmin: 'IT / IT / SUPERADMIN' }
 
-/** `match`: regex path tambahan agar item tetap aktif di halaman turunan (mis. /klinis/:id → Workspace pasien). */
-export interface NavItem { label: string; to: string; icon: string; match?: string }
+/** `match`: regex path tambahan agar item tetap aktif di halaman turunan (mis. /klinis/:id → Workspace pasien).
+ *  `crumb`: judul halaman di breadcrumb bila berbeda dari label menu. */
+export interface NavItem { label: string; to: string; icon: string; match?: string; crumb?: string }
+// Menu IT (Figma GL-02 Beranda IT / Superadmin). User & role hanya superadmin: /api/v1/users & /roles khusus superadmin.
+const NAV_IT: NavItem[] = [
+  { label: 'Poli & dokter', to: '/it/poli', icon: 'clipboard', crumb: 'Master Poli & Dokter' },
+  { label: 'Jadwal & kuota', to: '/it/jadwal', icon: 'users', crumb: 'Master Jadwal & Kuota' },
+  { label: 'Tarif & penjamin', to: '/it/tarif', icon: 'calendar', crumb: 'Master Tarif & Penjamin' },
+  { label: 'Status integrasi', to: '/it/integrasi', icon: 'activity', crumb: 'Status Integrasi & Antrian Kirim' },
+  { label: 'Audit trail', to: '/it/audit', icon: 'shield-check', crumb: 'Audit Trail' },
+  { label: 'Perangkat terdaftar', to: '/it/perangkat', icon: 'monitor', crumb: 'Perangkat Terdaftar' },
+  { label: 'Mapping HFIS BPJS & Antrol V2', to: '/it/mapping', icon: 'clipboard', crumb: 'Mapping HFIS BPJS & Antrol V2' },
+]
 export const NAV: Record<Role, NavItem[]> = {
   fo: [
     { label: 'Beranda', to: '/', icon: 'home' },
@@ -46,26 +57,8 @@ export const NAV: Record<Role, NavItem[]> = {
     { label: 'Rekap shift', to: '/kasir/shift', icon: 'wallet' },
     { label: 'Audit trail', to: '/it/audit', icon: 'shield' },
   ],
-  it: [
-    { label: 'Beranda', to: '/', icon: 'home' },
-    { label: 'Master poli & dokter', to: '/it/poli', icon: 'building' },
-    { label: 'Master jadwal', to: '/it/jadwal', icon: 'calendar' },
-    { label: 'Master tarif', to: '/it/tarif', icon: 'tag' },
-    { label: 'Status integrasi', to: '/it/integrasi', icon: 'activity' },
-    { label: 'Audit trail', to: '/it/audit', icon: 'shield' },
-    { label: 'Perangkat', to: '/it/perangkat', icon: 'monitor' },
-  ],
-  // Hanya superadmin yang boleh memakai /api/v1/users dan /api/v1/roles.
-  superadmin: [
-    { label: 'Beranda', to: '/', icon: 'home' },
-    { label: 'User & role', to: '/it/user', icon: 'users' },
-    { label: 'Master poli & dokter', to: '/it/poli', icon: 'building' },
-    { label: 'Master jadwal', to: '/it/jadwal', icon: 'calendar' },
-    { label: 'Master tarif', to: '/it/tarif', icon: 'tag' },
-    { label: 'Status integrasi', to: '/it/integrasi', icon: 'activity' },
-    { label: 'Audit trail', to: '/it/audit', icon: 'shield' },
-    { label: 'Perangkat', to: '/it/perangkat', icon: 'monitor' },
-  ],
+  it: [{ label: 'Beranda', to: '/', icon: 'grid' }, ...NAV_IT],
+  superadmin: [{ label: 'Beranda', to: '/', icon: 'grid' }, { label: 'User & role', to: '/it/user', icon: 'grid', crumb: 'User & Role (RBAC)' }, ...NAV_IT],
 }
 
 /** Awalan rute → role yang boleh membuka. Superadmin boleh semuanya; IT juga, kecuali rute khusus superadmin. */

@@ -106,7 +106,11 @@ const saveEdit = async () => {
     await pasien.update(pt.value.id, { ...d, nik: pt.value.nik })
     toast.ok('Data pasien diperbarui')
     editing.value = false
-  } catch (e: any) { err.value = e.message } finally { saving.value = false }
+  } catch (e: any) {
+    err.value = e instanceof ApiError && e.status === 409
+      ? (/bpjs/i.test(e.message) ? 'No. kartu BPJS sudah terdaftar atas pasien lain' : 'NIK sudah terdaftar atas pasien lain')
+      : e.message
+  } finally { saving.value = false }
 }
 
 const show = (x: F) => {
