@@ -4,8 +4,9 @@ export const APM_IDLE_SEC = 90
 export const APM_TOKEN_SEC = 180
 
 export type ApmState = {
-  mode: '' | 'lama' | 'baru'
-  idTipe: 'nik' | 'rm' | 'bpjs'
+  mode: '' | 'lama' | 'baru' | 'booking'
+  idTipe: 'nik' | 'rm' | 'bpjs' | 'booking'
+  bookingId: string // reservasi Mobile JKN / online yang sedang di-check-in
   patientId: string
   tokenExp: number // epoch ms; 0 = tidak ada token
   confirmed: boolean // identitas sudah dikonfirmasi pasien (token sudah dipakai)
@@ -15,7 +16,7 @@ export type ApmState = {
   baruRm: string
 }
 
-const emptyState = (): ApmState => ({ mode: '', idTipe: 'nik', patientId: '', tokenExp: 0, confirmed: false, poliId: '', doctorId: '', visitId: '', baruRm: '' })
+const emptyState = (): ApmState => ({ mode: '', idTipe: 'nik', bookingId: '', patientId: '', tokenExp: 0, confirmed: false, poliId: '', doctorId: '', visitId: '', baruRm: '' })
 
 /** Jam berjalan (detik) untuk kiosk / TV. */
 export function useKioskClock() {

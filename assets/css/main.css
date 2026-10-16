@@ -421,3 +421,34 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
   .panel { padding: 16px; }
 }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+/* ---------- APM (Figma APM-01..08) ---------- */
+.apm-h1 { font-size: 40px; font-weight: 600; color: #06345d; line-height: 1.45; margin: 0; }
+.apm-lead { font-size: 24px; color: #173348; line-height: 1.45; margin: 0; }
+.apm-note { font-size: 20px; color: #647887; line-height: 1.45; margin: 0; }
+.apm-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.apm-btn { min-height: 72px; padding: 18px 28px; border-radius: 8px; border: 1px solid #dfe7eb; background: #fff; color: #173348; font: inherit; font-size: 24px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 10px; touch-action: manipulation; }
+.apm-btn.pri { background: #008d96; border-color: #008d96; color: #fff; }
+.apm-btn:disabled { opacity: .5; cursor: not-allowed; }
+.apm-btn.stack { flex-direction: column; gap: 6px; }
+.apm-btn.stack small { font-size: 16px; color: rgba(255, 255, 255, .8); font-weight: 600; }
+.apm-guide { background: #eaf6f5; color: #00747c; border-radius: 8px; padding: 16px; font-size: 20px; line-height: 1.45; display: flex; gap: 12px; align-items: flex-start; }
+.apm-card { background: #fff; border: 1px solid #dfe7eb; border-radius: 16px; }
+.apm-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.apm-field > label, .apm-field > .lbl { font-size: 20px; font-weight: 600; color: #173348; line-height: 1.45; }
+.apm-input { min-height: 64px; padding: 16px; border-radius: 8px; border: 1px solid #dfe7eb; background: #fff; font: inherit; font-size: 24px; color: #173348; width: 100%; }
+.apm-input:focus, .apm-input.aktif { outline: none; border: 2px solid #008d96; padding: 15px; }
+.apm-input.err { border-color: var(--err); }
+.apm-input::placeholder { color: #647887; }
+.apm-err { color: var(--err); font-size: 18px; }
+.apm-keys { display: flex; flex-direction: column; gap: 12px; width: 100%; }
+.apm-keys .kr { display: flex; gap: 12px; }
+.apm-key { flex: 1; min-height: 64px; padding: 16px 4px; border-radius: 8px; border: 1px solid #dfe7eb; background: #fff; font: inherit; font-size: 24px; font-weight: 600; color: #06345d; cursor: pointer; touch-action: manipulation; }
+.apm-key:active { background: var(--teal-l); }
+.apm-alert { background: var(--err-bg); color: var(--err); border-radius: 8px; padding: 16px; font-size: 20px; line-height: 1.45; }
+.apm-alert.warn { background: var(--warn-bg); color: var(--warn); }
+@media (max-width: 767px) {
+  .apm-h1 { font-size: 28px; } .apm-lead { font-size: 18px; } .apm-note, .apm-guide { font-size: 16px; }
+  .apm-btn { min-height: 64px; font-size: 20px; padding: 14px 20px; }
+  .apm-key { font-size: 20px; min-height: 56px; }
+}

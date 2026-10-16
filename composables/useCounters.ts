@@ -116,6 +116,7 @@ export async function displayQueues() {
   return {
     tanggal: d?.date || today,
     menunggu: d?.waiting_count || 0,
+    diperbarui: d?.generated_at || new Date().toISOString(),
     lokets: (d?.counters || []).map((c: any) => ({
       id: c.counter_id,
       nama: c.counter_name,

@@ -93,6 +93,7 @@ export function useVwrCalls(types: string[], onCall: (e: any, live: boolean) => 
 export function useVwrLoket(onCall: (e: any, live: boolean) => void = () => {}, ms = 3000) {
   const lokets = ref<any[]>([])
   const menunggu = ref(0)
+  const diperbarui = ref('')
   const tanggal = ref(todayStr())
   const err = ref('')
   const seen = new Map<string, string>()
@@ -107,6 +108,7 @@ export function useVwrLoket(onCall: (e: any, live: boolean) => void = () => {}, 
       lokets.value = d.lokets
       menunggu.value = d.menunggu
       tanggal.value = d.tanggal
+      diperbarui.value = d.diperbarui
       err.value = ''
       const calls = d.lokets.filter((l: any) => l.current).map((l: any) => ({ nomor: l.current.nomor, loket: l.nama.replace(/^loket\s*/i, ''), loketNama: l.nama, at: l.current.lastCalledAt, type: 'loket' }))
       const baru = calls.filter((c: any) => seen.get(c.loketNama) !== c.at).sort((a: any, b: any) => (a.at > b.at ? 1 : -1))
@@ -127,5 +129,16 @@ export function useVwrLoket(onCall: (e: any, live: boolean) => void = () => {}, 
     window.removeEventListener('online', muat)
     document.removeEventListener('visibilitychange', onVisible)
   })
-  return { lokets, current, menunggu, tanggal, err }
+  /**
+   * "Antrean berikutnya": API display hanya memberi jumlah menunggu, jadi nomor diturunkan dari nomor tertinggi
+   * yang sudah dipanggil hari ini (+1, +2, …; antrean loket FIFO & berurutan), maksimal `n` nomor.
+   */
+  const berikutnya = (n = 5) => {
+    const nomor = lokets.value.filter((l) => l.current).map((l) => /^([A-Za-z]+)-?(\d+)$/.exec(l.current.nomor)).filter(Boolean) as RegExpExecArray[]
+    const prefix = nomor[0]?.[1] || 'A'
+    const lebar = nomor[0]?.[2].length || 3
+    const maks = Math.max(0, ...nomor.map((m) => +m[2]))
+    return Array.from({ length: Math.min(n, menunggu.value) }, (_, i) => `${prefix}-${String(maks + i + 1).padStart(lebar, '0')}`)
+  }
+  return { lokets, current, menunggu, tanggal, err, diperbarui, berikutnya }
 }

@@ -1,0 +1,13 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="170" height="160" viewBox="0 0 170 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Scan target" clip-path="url(#clip0_0_4)">
+<path id="Scanner brackets" d="M0 36V0H36M134 0H170V36M170 124V160H134M36 160H0V124" stroke="#008D96" stroke-width="3"/>
+<g id="smartphone">
+<path id="Vector" d="M85 103.502H85.0267M71.6651 40.8302H98.3349C101.281 40.8302 103.669 44.3376 103.669 48.6642V111.336C103.669 115.662 101.281 119.17 98.3349 119.17H71.6651C68.7193 119.17 66.3312 115.662 66.3312 111.336V48.6642C66.3312 44.3376 68.7193 40.8302 71.6651 40.8302Z" stroke="#647887" stroke-width="1.4" stroke-linecap="round"/>
+</g>
+</g>
+<defs>
+<clipPath id="clip0_0_4">
+<rect width="170" height="160" fill="white"/>
+</clipPath>
+</defs>
+</svg>

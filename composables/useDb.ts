@@ -194,13 +194,14 @@ export function useDb() {
     _db = reactive(import.meta.client ? load() : seed())
     if (import.meta.client) {
       let timer: any
-      watch(_db, () => {
+      // scope terlepas: watcher tidak ikut berhenti saat komponen pemanggil pertama dilepas (mis. halaman APM)
+      effectScope(true).run(() => watch(_db, () => {
         if (_loading) return
         clearTimeout(timer)
         timer = setTimeout(() => {
           try { localStorage.setItem(KEY, JSON.stringify(_db)) } catch {}
         }, 80)
-      }, { deep: true })
+      }, { deep: true }))
       window.addEventListener('storage', (e) => {
         if (e.key !== KEY || !e.newValue) return
         _loading = true
@@ -215,6 +216,14 @@ export function useDb() {
   }
   const db = _db
   const { user } = useAuth()
+  // Data demo booking Mobile JKN hari ini (kode 10 digit YYMMDD+NNNN) untuk APM-03/04/08 — simulasi lokal, bukan API BPJS.
+  const tglKode = todayStr().slice(2).replace(/-/g, '')
+  if (!db.reservations.some((r: any) => r.kanal === 'mobile-jkn' && r.tanggal === todayStr())) {
+    db.reservations.push(
+      { id: 'rj1', kode: tglKode + '0001', kodeBooking: tglKode + '0001', patientId: 'p1', poliId: 'poli-um', doctorId: 'dr-andi', tanggal: todayStr(), kanal: 'mobile-jkn', status: 'booked', jam: '13.30', dibuat: nowIso() },
+      { id: 'rj2', kode: tglKode + '0007', kodeBooking: tglKode + '0007', patientId: 'p7', poliId: 'poli-um', doctorId: 'dr-andi', tanggal: todayStr(), kanal: 'mobile-jkn', status: 'booked', jam: '09.35', dibuat: nowIso() },
+    )
+  }
 
   // ---------- helper umum ----------
   const audit = (aksi: string, objek: string, alasan = '') => {
@@ -413,6 +422,21 @@ export function useDb() {
     if (r.tanggal !== todayStr()) throw new Error('Check-in hanya pada hari H')
     const pt = patient(r.patientId)
     const v = registerVisit({ patientId: r.patientId, poliId: r.poliId, doctorId: r.doctorId, penjamin: pt.penjamin, kanal: 'reservasi', tipe: 'kontrol', keluhan: 'Reservasi ' + r.kode, persetujuan: true, reservasiId: r.id })
+    return v
+  }
+
+  // ---------- check-in booking Mobile JKN / online (APM-03/04/08) ----------
+  const findBooking = (kode: string) => db.reservations.find((r: any) => (r.kodeBooking || r.kode) === kode)
+  /** Booked → Hadir: terbitkan kunjungan + nomor antrean poli, catat Task ID 3 (simulasi lokal). */
+  const checkInBooking = (id: string) => {
+    const r = db.reservations.find((x: any) => x.id === id)
+    if (!r) throw new Error('Kode booking tidak ditemukan')
+    if (r.status !== 'booked') throw new Error('Booking ini sudah check-in atau tidak aktif')
+    const v = checkInReservation(id)
+    v.kodeBooking = r.kodeBooking || r.kode
+    v.viaMobileJkn = r.kanal === 'mobile-jkn'
+    catatTask(v, 1); catatTask(v, 2); catatTask(v, 3)
+    if (v.viaMobileJkn) enqueue('Antrol Task 3', v.kodeBooking, 'BPJS Antrol')
     return v
   }
 
@@ -639,7 +663,7 @@ export function useDb() {
     searchPatients, lastVisitOf, createPatient, updatePatient, setAlergi,
     takeLoketTicket, loketMenunggu, loketAktif, callNextLoket, recallLoket, skipLoket, finishLoket,
     registerVisit, processSep, retrySep, cekKepesertaan, cancelVisit,
-    createReservation, cancelReservation, rescheduleReservation, checkInReservation,
+    createReservation, cancelReservation, rescheduleReservation, checkInReservation, findBooking, checkInBooking,
     poliQueue, taskBpjs, callPoli, recallPoli, skipPoli, startExam, saveVitals, latestVitals, getSoap, signSoap, addOrder, removeOrder, closeVisit,
     hargaDari, ensureBill, billItems, billTotals, tagihanList, setSkema, addManualItem, setDiskon, finalizeBill, pay, currentShift, closeShift, shiftSummary,
     retryOutbox, flushOutbox, resetDemo,
