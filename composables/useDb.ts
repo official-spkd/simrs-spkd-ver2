@@ -216,6 +216,13 @@ export function useDb() {
   }
   const db = _db
   const { user } = useAuth()
+  // Penomoran INV/KW unik: penghitung tidak boleh di bawah nomor yang sudah terpakai hari ini (mis. dari data demo awal)
+  for (const [key, field] of [['inv', 'noInv'], ['kw', 'noKw']] as const) {
+    const ck = `${todayStr()}|${key}`
+    const tag = todayStr().replace(/-/g, '')
+    const maks = Math.max(0, ...Object.values(db.bills).map((b: any) => String(b[field] || '')).filter((n) => n.includes(`/${tag}/`)).map((n) => parseInt(n.split('/').pop() || '0', 10) || 0))
+    if ((db.counters[ck] || 0) < maks) db.counters[ck] = maks
+  }
   // Data demo booking Mobile JKN hari ini (kode 10 digit YYMMDD+NNNN) untuk APM-03/04/08 — simulasi lokal, bukan API BPJS.
   const tglKode = todayStr().slice(2).replace(/-/g, '')
   if (!db.reservations.some((r: any) => r.kanal === 'mobile-jkn' && r.tanggal === todayStr())) {
@@ -616,7 +623,7 @@ export function useDb() {
     return b
   }
   const currentShift = () => db.shifts.find((s: any) => !s.closed && s.kasir === (user.value?.nama || 'Rina Kasir')) || db.shifts.find((s: any) => !s.closed)
-  const pay = (visitId: string, parts: { metode: string; jumlah: number; ref?: string }[]) => {
+  const pay = (visitId: string, parts: { metode: string; jumlah: number; ref?: string; diterima?: number; kembalian?: number }[]) => {
     const v = visit(visitId)
     const b = db.bills[visitId]
     if (!b || b.status !== 'final') throw new Error('Finalkan tagihan terlebih dahulu')
@@ -628,7 +635,8 @@ export function useDb() {
     const shift = currentShift()
     parts.forEach((p) => {
       const j = Math.min(Number(p.jumlah), remain); remain -= j
-      b.payments.push({ id: uid('pay'), metode: p.metode, jumlah: j, at: nowIso(), ref: p.ref || '', kasir: user.value?.nama || '-', shiftId: shift?.id })
+      // tunai: simpan uang diterima & kembalian untuk invoice/kwitansi (KS-04)
+      b.payments.push({ id: uid('pay'), metode: p.metode, jumlah: j, at: nowIso(), ref: p.ref || '', kasir: user.value?.nama || '-', shiftId: shift?.id, ...(p.metode === 'Tunai' && p.diterima ? { diterima: Number(p.diterima), kembalian: Math.max(0, Number(p.diterima) - j) } : {}) })
     })
     if (!b.payments.length) b.payments.push({ id: uid('pay'), metode: 'Tunai', jumlah: 0, at: nowIso(), ref: 'BPJS', kasir: user.value?.nama || '-', shiftId: shift?.id })
     b.status = 'lunas'; v.status = 'lunas'
@@ -636,16 +644,18 @@ export function useDb() {
     audit('terima pembayaran', `${v.noKunjungan} · ${b.noKw}`)
     return b
   }
-  const closeShift = (id: string) => {
+  const closeShift = (id: string, rekon: { tunaiTerhitung?: number; catatan?: string; selisih?: number } = {}) => {
     const s = db.shifts.find((x: any) => x.id === id)
-    s.closed = true; s.selesai = nowIso()
+    if (!s || s.closed) throw new Error('Shift sudah ditutup')
+    s.closed = true; s.selesai = nowIso(); s.rekon = { ...rekon, total: shiftSummary(s).total }
     db.shifts.push({ id: uid('sh'), kasir: s.kasir, mulai: nowIso(), selesai: null, closed: false })
-    audit('tutup shift', s.kasir)
+    audit('tutup shift', s.kasir, rekon.catatan || '')
   }
   const shiftSummary = (s: any) => {
     const pays = Object.values(db.bills).flatMap((b: any) => b.payments || []).filter((p: any) => p.shiftId === s.id || (!p.shiftId && s.id === 'sh1'))
     const by = (m: string) => pays.filter((p: any) => p.metode === m).reduce((a: number, p: any) => a + p.jumlah, 0)
-    return { transaksi: pays.length, tunai: by('Tunai'), qris: by('QRIS'), va: by('VA'), total: pays.reduce((a: number, p: any) => a + p.jumlah, 0) }
+    const n = (m: string) => pays.filter((p: any) => p.metode === m).length
+    return { transaksi: pays.length, tunai: by('Tunai'), qris: by('QRIS'), va: by('VA'), total: pays.reduce((a: number, p: any) => a + p.jumlah, 0), nTunai: n('Tunai'), nQris: n('QRIS'), nVa: n('VA') }
   }
 
   // ---------- notifikasi / integrasi ----------

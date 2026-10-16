@@ -45,3 +45,22 @@ export const maskNama = (nama: string) =>
 export const menitAntara = (a?: string | null, b?: string | null) =>
   a ? Math.max(0, Math.round(((b ? new Date(b).getTime() : Date.now()) - new Date(a).getTime()) / 60000)) : 0
 export const pad = (n: number, w = 3) => String(n).padStart(w, '0')
+
+/** Terbilang Rupiah: 250000 → 'Dua ratus lima puluh ribu rupiah' (untuk kwitansi KS-04). */
+export const terbilang = (n: number): string => {
+  const SAT = ['', 'satu', 'dua', 'tiga', 'empat', 'lima', 'enam', 'tujuh', 'delapan', 'sembilan', 'sepuluh', 'sebelas']
+  const eja = (x: number): string => {
+    if (x < 12) return SAT[x]
+    if (x < 20) return eja(x - 10) + ' belas'
+    if (x < 100) return eja(Math.floor(x / 10)) + ' puluh' + (x % 10 ? ' ' + eja(x % 10) : '')
+    if (x < 200) return 'seratus' + (x - 100 ? ' ' + eja(x - 100) : '')
+    if (x < 1000) return eja(Math.floor(x / 100)) + ' ratus' + (x % 100 ? ' ' + eja(x % 100) : '')
+    if (x < 2000) return 'seribu' + (x - 1000 ? ' ' + eja(x - 1000) : '')
+    if (x < 1e6) return eja(Math.floor(x / 1000)) + ' ribu' + (x % 1000 ? ' ' + eja(x % 1000) : '')
+    if (x < 1e9) return eja(Math.floor(x / 1e6)) + ' juta' + (x % 1e6 ? ' ' + eja(x % 1e6) : '')
+    return eja(Math.floor(x / 1e9)) + ' miliar' + (x % 1e9 ? ' ' + eja(x % 1e9) : '')
+  }
+  const v = Math.round(Math.abs(n || 0))
+  const t = v === 0 ? 'nol' : eja(v).replace(/\s+/g, ' ').trim()
+  return t.charAt(0).toUpperCase() + t.slice(1) + ' rupiah'
+}

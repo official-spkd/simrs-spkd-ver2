@@ -8,7 +8,7 @@ export const ROLE_LABEL: Record<Role, string> = {
   it: 'IT Support',
   superadmin: 'Superadmin',
 }
-export const ROLE_SHORT: Record<Role, string> = { fo: 'FO / FRONT OFFICE / ADMIN', dokter: 'KL / DOKTER / PERAWAT', kasir: 'KASIR', mgmt: 'MANAGEMENT RS', it: 'IT SUPPORT', superadmin: 'SUPERADMIN' }
+export const ROLE_SHORT: Record<Role, string> = { fo: 'FO / FRONT OFFICE / ADMIN', dokter: 'KL / DOKTER / PERAWAT', kasir: 'KS / KASIR', mgmt: 'MANAGEMENT RS', it: 'IT SUPPORT', superadmin: 'SUPERADMIN' }
 
 /** `match`: regex path tambahan agar item tetap aktif di halaman turunan (mis. /klinis/:id → Workspace pasien). */
 export interface NavItem { label: string; to: string; icon: string; match?: string }
@@ -31,9 +31,11 @@ export const NAV: Record<Role, NavItem[]> = {
   ],
   kasir: [
     { label: 'Beranda', to: '/', icon: 'home' },
-    { label: 'Worklist tagihan', to: '/kasir', icon: 'receipt' },
-    { label: 'Rekap shift', to: '/kasir/shift', icon: 'wallet' },
-    { label: 'Data pasien', to: '/pasien', icon: 'users' },
+    { label: 'Worklist tagihan', to: '/kasir', icon: 'grid', match: '^/kasir/(?!shift$|bayar$|invoice$)[^/]+$' },
+    { label: 'Pembayaran', to: '/kasir/bayar', icon: 'clipboard', match: '^/kasir/[^/]+/bayar$' },
+    { label: 'Invoice & kwitansi', to: '/kasir/invoice', icon: 'users', match: '^/kasir/[^/]+/invoice$' },
+    { label: 'Rekap shift', to: '/kasir/shift', icon: 'calendar' },
+    { label: 'Data pasien · baca', to: '/pasien', icon: 'activity' },
   ],
   mgmt: [
     { label: 'Beranda', to: '/', icon: 'home' },
