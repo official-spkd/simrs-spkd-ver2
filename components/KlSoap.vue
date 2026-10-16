@@ -3,6 +3,8 @@
 const props = defineProps<{ visitId: string; editable: boolean }>()
 const emit = defineEmits(['goto'])
 const { db, visit, poli, doctor, getSoap, latestVitals, signSoap } = useDb()
+const { isDokter } = useDokterQueue()
+const klinis = useKlinis()
 const toast = useToast()
 
 const v = computed(() => visit(props.visitId))
@@ -10,16 +12,32 @@ const soap = computed(() => getSoap(props.visitId))
 const locked = computed(() => !props.editable || soap.value.signed)
 
 // ---- SOAP sebelumnya (kiri, baca saja) ----
-const riwayat = computed(() =>
+// Akun dokter: SOAP final terakhir dari riwayat server (semua poli/dokter); role lain: data lokal.
+const riwayatServer = ref<any[]>([])
+onMounted(async () => {
+  if (!isDokter.value) return
+  try { riwayatServer.value = await klinis.riwayat(props.visitId) } catch {}
+})
+const riwayatLokal = computed(() =>
   db.visits
     .filter((x: any) => x.patientId === v.value.patientId && x.id !== props.visitId && db.soap[x.id])
     .sort((a: any, b: any) => (a.jamDaftar < b.jamDaftar ? 1 : -1)),
 )
-const prev = computed(() => riwayat.value[0] || null)
-const prevSoap = computed(() => (prev.value ? db.soap[prev.value.id] : null))
+// bentuk seragam: { tanggal, poliNama, dokterNama, soap, vital } — vital berbentuk lokal (td, nadi)
+const prev = computed(() => {
+  if (isDokter.value) {
+    const x = riwayatServer.value.find((h: any) => h.soap && h.tanggal <= v.value.tanggal)
+    if (!x) return null
+    const vt = x.soap.vital
+    return { tanggal: x.tanggal, poliNama: x.poli, dokterNama: x.dokter, soap: x.soap, vital: vt && { td: `${vt.systolic_bp}/${vt.diastolic_bp}`, nadi: vt.pulse } }
+  }
+  const x = riwayatLokal.value[0]
+  return x ? { tanggal: x.tanggal, poliNama: poli(x.poliId)?.nama, dokterNama: doctor(x.doctorId)?.nama, soap: db.soap[x.id], vital: latestVitals(x.id) } : null
+})
+const prevSoap = computed(() => prev.value?.soap || null)
 const prevO = computed(() => {
   if (!prev.value) return ''
-  const x = latestVitals(prev.value.id)
+  const x = prev.value.vital
   return [x ? `TD ${x.td} mmHg; nadi ${x.nadi}` : '', prevSoap.value?.fisik].filter(Boolean).join('; ') || '-'
 })
 const tglHariIni = computed(() => fmtTglPanjang(v.value.tanggal).replace(/^\w+, /, ''))
@@ -60,38 +78,74 @@ const hapusSek = (kode: string) => { soap.value.diagSekunder = soap.value.diagSe
 const dirty = ref(false)
 const savedAt = ref<string | null>(null)
 const touch = () => { dirty.value = true }
-watch(() => [soap.value.s, soap.value.fisik, soap.value.asesmen, soap.value.p, soap.value.tindakLanjut], touch)
+watch(() => [soap.value.s, soap.value.fisik, soap.value.asesmen, soap.value.p, soap.value.tindakLanjut, soap.value.tglKontrol, soap.value.catatanRujukan], touch)
+// Akun dokter: draf dikirim ke server (PUT soap-note); role lain hanya menandai waktu simpan lokal.
+const menyimpan = ref(false)
+const gagalSimpan = ref('')
+const kirimDraf = async () => {
+  if (menyimpan.value) return false
+  dirty.value = false
+  menyimpan.value = true
+  try {
+    if (isDokter.value) await klinis.simpanSoap(props.visitId)
+    savedAt.value = new Date().toISOString()
+    gagalSimpan.value = ''
+    return true
+  } catch (e: any) {
+    dirty.value = true
+    if (gagalSimpan.value !== e.message) toast.err(e.message)
+    gagalSimpan.value = e.message
+    return false
+  } finally {
+    menyimpan.value = false
+  }
+}
+// autosave berhenti setelah gagal (mis. konflik versi) sampai petugas menekan "Simpan draf" lagi
 let timer: any
 onMounted(() => {
-  timer = setInterval(() => {
-    if (dirty.value && !locked.value) { dirty.value = false; savedAt.value = new Date().toISOString() }
-  }, 4000)
+  timer = setInterval(() => { if (dirty.value && !locked.value && !gagalSimpan.value) kirimDraf() }, 4000)
 })
-onBeforeUnmount(() => clearInterval(timer))
-const simpanDraf = () => { dirty.value = false; savedAt.value = new Date().toISOString(); toast.ok('Draf SOAP tersimpan') }
+onBeforeUnmount(() => { clearInterval(timer); if (dirty.value && !locked.value) kirimDraf() })
+const simpanDraf = async () => { gagalSimpan.value = ''; if (await kirimDraf()) toast.ok('Draf SOAP tersimpan') }
 
 // ---- lampiran ----
 const MAX = 10 * 1024 * 1024
 const TIPE = ['application/pdf', 'image/jpeg', 'image/png']
 const fileErr = ref('')
-const onFile = (e: Event) => {
+const mengunggah = ref(false)
+const onFile = async (e: Event) => {
   const el = e.target as HTMLInputElement
   const files = Array.from(el.files || [])
+  el.value = ''
   fileErr.value = ''
+  mengunggah.value = true
   for (const file of files) {
     if (!TIPE.includes(file.type)) { fileErr.value = `"${file.name}" ditolak: hanya PDF, JPG, PNG.`; continue }
     if (file.size > MAX) { fileErr.value = `"${file.name}" ditolak: melebihi 10 MB.`; continue }
+    if (isDokter.value) {
+      try { await klinis.unggah(props.visitId, file) } catch (err: any) { fileErr.value = `"${file.name}": ${err.message}`; continue }
+      toast.ok(`Lampiran ${file.name} terunggah`)
+      continue
+    }
     const l = { nama: file.name, tipe: file.type, ukuran: file.size, at: new Date().toISOString() }
     simpanUrlLampiran(l, file)
     soap.value.lampiran.push(l)
     toast.ok(`Lampiran ${file.name} dicatat`)
     touch()
   }
+  mengunggah.value = false
   if (fileErr.value) toast.err(fileErr.value)
-  el.value = ''
 }
-const hapusLampiran = (i: number) => { soap.value.lampiran.splice(i, 1); touch() }
-const lihatLampiran = (l: any) => (urlLampiran(l) ? window.open(urlLampiran(l), '_blank') : toast.warn('Pratinjau hanya tersedia pada sesi saat berkas diunggah (MVP menyimpan metadata).'))
+const hapusLampiran = async (i: number) => {
+  const l = soap.value.lampiran[i]
+  if (!l.id) { soap.value.lampiran.splice(i, 1); touch(); return }
+  try { await klinis.hapusLampiran(props.visitId, l.id); toast.ok(`Lampiran ${l.nama} dihapus`) } catch (e: any) { toast.err(e.message) }
+}
+const lihatLampiran = async (l: any) => {
+  if (l.id) { try { await klinis.bukaLampiran(l.id) } catch (e: any) { toast.err(e.message) } return }
+  if (urlLampiran(l)) window.open(urlLampiran(l), '_blank')
+  else toast.warn('Pratinjau hanya tersedia pada sesi saat berkas diunggah (MVP menyimpan metadata).')
+}
 
 // ---- order ----
 const showOrder = ref(false)
@@ -101,16 +155,32 @@ const nOrder = computed(() => (db.orders[props.visitId] || []).length)
 
 // ---- tanda tangan ----
 const showSign = ref(false)
-const tandaTangan = () => {
+const tandaTangan = async () => {
   if (!soap.value.diagUtama) { toast.err('Minimal 1 diagnosis utama sebelum tanda tangan'); showSign.value = false; return }
-  if (toast.attempt(() => signSoap(props.visitId), 'SOAP ditandatangani & dikunci')) showSign.value = false
+  if (soap.value.tindakLanjut === 'kontrol' && !soap.value.tglKontrol) { toast.err('Isi tanggal kontrol untuk tindak lanjut kontrol'); showSign.value = false; return }
+  if (['rawat inap', 'ICU'].includes(soap.value.tindakLanjut) && !String(soap.value.catatanRujukan || '').trim()) { toast.err('Isi catatan rujukan'); showSign.value = false; return }
+  menyimpan.value = true
+  try {
+    if (isDokter.value) await klinis.tandaTangan(props.visitId)
+    else signSoap(props.visitId)
+    dirty.value = false
+    showSign.value = false
+    toast.ok('SOAP ditandatangani & dikunci')
+  } catch (e: any) {
+    toast.err(e.message)
+  } finally {
+    menyimpan.value = false
+  }
 }
 
 // ---- addendum ----
 const addendumTeks = ref('')
-const tambahAddendum = () => {
+const tambahAddendum = async () => {
   if (addendumTeks.value.trim().length < 5) { toast.err('Isi addendum minimal 5 karakter'); return }
-  soap.value.addenda.push({ teks: addendumTeks.value.trim(), at: new Date().toISOString(), by: doctor(v.value.doctorId)?.nama })
+  try {
+    if (isDokter.value) await klinis.addendum(props.visitId, addendumTeks.value)
+    else soap.value.addenda.push({ teks: addendumTeks.value.trim(), at: new Date().toISOString(), by: doctor(v.value.doctorId)?.nama })
+  } catch (e: any) { toast.err(e.message); return }
   addendumTeks.value = ''
   toast.ok('Addendum ditambahkan')
 }
@@ -121,7 +191,8 @@ const tambahAddendum = () => {
     <div class="kl-actions" style="gap: 16px">
       <span v-if="soap.signed" class="badge b-ok">SOAP ditandatangani · {{ jamDetik(soap.signedAt) }}</span>
       <template v-else>
-        <span class="badge b-ok" aria-live="polite">{{ savedAt ? 'Draf tersimpan lokal · ' + jamDetik(savedAt) : dirty ? 'Perubahan belum disimpan…' : 'Draf belum diubah' }}</span>
+        <span v-if="gagalSimpan" class="badge b-err" aria-live="polite">Gagal menyimpan draf · {{ gagalSimpan }}</span>
+        <span v-else class="badge b-ok" aria-live="polite">{{ savedAt ? `Draf tersimpan ${isDokter ? 'di server' : 'lokal'} · ` + jamDetik(savedAt) : dirty ? 'Perubahan belum disimpan…' : 'Draf belum diubah' }}</span>
         <span class="badge b-teal">Autosave setiap 4 detik</span>
       </template>
     </div>
@@ -133,12 +204,12 @@ const tambahAddendum = () => {
           <h2>SOAP sebelumnya</h2>
           <template v-if="prev && prevSoap">
             <div><span class="badge b-navy">{{ fmtTgl(prev.tanggal) }} · Baca saja</span></div>
-            <p class="muted">{{ poli(prev.poliId)?.nama }} · {{ doctor(prev.doctorId)?.nama }}</p>
+            <p class="muted">{{ prev.poliNama }} · {{ prev.dokterNama }}</p>
             <p class="soap-sec">S · Subjektif</p><p class="soap-txt">{{ prevSoap.s || '-' }}</p>
             <p class="soap-sec">O · Objektif</p><p class="soap-txt">{{ prevO }}</p>
             <p class="soap-sec">A · Asesmen</p><p class="soap-txt">{{ prevSoap.diagUtama ? prevSoap.diagUtama.kode + ' · ' + prevSoap.diagUtama.nama : prevSoap.asesmen || '-' }}</p>
             <p class="soap-sec">P · Plan</p><p class="soap-txt">{{ prevSoap.p || '-' }}</p>
-            <p v-if="prevSoap.signed" class="muted" style="font-size: 12px">SOAP ditandatangani {{ fmtTgl(prevSoap.signedAt) }} · {{ fmtJam(prevSoap.signedAt) }}</p>
+            <p v-if="prevSoap.signedAt" class="muted" style="font-size: 12px">SOAP ditandatangani {{ fmtTgl(prevSoap.signedAt) }} · {{ fmtJam(prevSoap.signedAt) }}</p>
             <div><button class="btn" @click="emit('goto', 'riwayat')">Buka detail riwayat</button></div>
           </template>
           <p v-else class="muted">Belum ada kunjungan terdahulu dengan SOAP.</p>
@@ -200,14 +271,20 @@ const tambahAddendum = () => {
             </select>
             <span class="hint">Pilihan: pulang / kontrol / rujuk rawat inap–ICU (hanya dicatat, tanpa modul rawat inap).</span>
           </div>
+          <div v-if="soap.tindakLanjut === 'kontrol'" class="field"><label class="req" for="s-tk">Tanggal kontrol</label>
+            <input id="s-tk" v-model="soap.tglKontrol" class="input" type="date" :min="addDays(todayStr(), 1)" :max="addDays(todayStr(), 90)" :disabled="locked">
+          </div>
+          <div v-if="['rawat inap', 'ICU'].includes(soap.tindakLanjut)" class="field"><label class="req" for="s-rj">Catatan rujukan</label>
+            <textarea id="s-rj" v-model="soap.catatanRujukan" class="textarea" :disabled="locked" placeholder="Alasan &amp; tujuan rujukan" />
+          </div>
         </div>
 
         <div class="panel">
           <h2>Lampiran medis</h2>
           <div class="field"><span class="lbl">Unggah lampiran</span>
             <label class="file-pick" :class="{ off: locked }">
-              <input type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" multiple :disabled="locked" aria-label="Unggah lampiran" @change="onFile">
-              ＋ Pilih file PDF / JPG / PNG · maksimal 10 MB per file
+              <input type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" multiple :disabled="locked || mengunggah" aria-label="Unggah lampiran" @change="onFile">
+              {{ mengunggah ? 'Mengunggah…' : '＋ Pilih file PDF / JPG / PNG · maksimal 10 MB per file' }}
             </label>
             <p v-if="fileErr" class="err-text">{{ fileErr }}</p>
           </div>
@@ -219,8 +296,8 @@ const tambahAddendum = () => {
                 <tr v-for="(l, i) in soap.lampiran" :key="i">
                   <td data-label="File">{{ l.nama }}</td>
                   <td data-label="Ukuran">{{ (l.ukuran / 1024).toFixed(0) }} KB</td>
-                  <td data-label="Status">Tersimpan lokal</td>
-                  <td data-label="Aksi"><button class="btn btn-sm btn-ghost" @click="lihatLampiran(l)">Lihat</button><button v-if="!locked" class="btn btn-sm btn-ghost" @click="hapusLampiran(i)">Hapus</button></td>
+                  <td data-label="Status">{{ l.id ? 'Tersimpan di server' : 'Tersimpan lokal' }}</td>
+                  <td data-label="Aksi"><button class="btn btn-sm btn-ghost" @click="lihatLampiran(l)">Lihat</button><button v-if="!locked" class="btn btn-sm btn-ghost" @click="hapusLampiran(Number(i))">Hapus</button></td>
                 </tr>
               </tbody>
             </table>
@@ -238,8 +315,8 @@ const tambahAddendum = () => {
     </div>
 
     <div v-if="!soap.signed" class="kl-actions">
-      <button class="btn" :disabled="locked" @click="simpanDraf">Simpan draf</button>
-      <button class="btn btn-primary" :disabled="locked" @click="showSign = true">Tanda tangani &amp; kunci</button>
+      <button class="btn" :disabled="locked || menyimpan" @click="simpanDraf">Simpan draf</button>
+      <button class="btn btn-primary" :disabled="locked || menyimpan" @click="showSign = true">Tanda tangani &amp; kunci</button>
     </div>
 
     <KlOrderModal v-model="showOrder" :visit-id="visitId" :initial-tab="orderTab" />
@@ -251,7 +328,7 @@ const tambahAddendum = () => {
       <div v-if="!String(soap.s || '').trim()" class="alert warn" style="margin-top:8px"><span>S · Keluhan / anamnesis masih kosong.</span></div>
       <template #footer>
         <button class="btn" @click="showSign = false">Batal</button>
-        <button class="btn btn-primary" @click="tandaTangan">Tanda tangani</button>
+        <button class="btn btn-primary" :disabled="menyimpan" @click="tandaTangan">Tanda tangani</button>
       </template>
     </AppModal>
   </div>

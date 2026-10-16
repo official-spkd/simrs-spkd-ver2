@@ -188,54 +188,5 @@ export function useVisits() {
 
   const get = async (id: string) => cache(await api(`/api/v1/visits/${id}`))
 
-  /** Salin satu tiket /api/v1/queues ke db.visits (untuk akun dokter, yang tidak boleh membaca /visits & /patients).
-   *  Tiket membawa data pasien lengkap; penjamin kunjungan tidak ada → pakai penjamin default pasien (payer). */
-  const cacheTiket = (q: any) => {
-    const pl = poliOf(q)
-    const dr = doctorOf(q)
-    if (!pl || !dr || !q.visit_id || !q.patient?.id) return null
-    const i = db.patients.findIndex((p: any) => p.id === q.patient.id)
-    const pt = pasienFromApi(q.patient, i >= 0 ? db.patients[i] : {})
-    if (i >= 0) db.patients[i] = pt
-    else db.patients.push(pt)
-    const fromServer = {
-      id: q.visit_id, patientId: pt.id, tanggal: (q.queue_date || '').length > 10 ? dateOf(q.queue_date) : q.queue_date,
-      poliId: pl.id, doctorId: dr.id, poliNama: q.poli?.name || pl.nama, dokterNama: q.doctor?.name || dr.nama, server: true,
-    }
-    const old = db.visits.find((v: any) => v.id === q.visit_id)
-    if (old) {
-      if (!old.penjamin) old.penjamin = pt.penjamin
-      return Object.assign(old, fromServer)
-    }
-    const v: any = {
-      ...fromServer,
-      noKunjungan: `RJ-${fromServer.tanggal.slice(2, 4)}${fromServer.tanggal.slice(5, 7)}-${pl.kode}${q.poli_queue_number}`,
-      kanal: 'loket', penjamin: pt.penjamin, tipe: '', keluhan: '', pj: '', status: 'terdaftar',
-      antreanPoli: { nomor: `${pl.kode}-${q.poli_queue_number}`, status: 'menunggu' },
-      jamDaftar: q.created_at, jamPanggil: null, jamMulai: null, jamSelesai: null,
-      sep: null, asuransi: null, dokumen: [], satuSehat: 'antrian',
-      pembatalan: null, kondisiPulang: '', caraPulang: '', tglKontrol: '', persetujuan: true,
-    }
-    db.visits.push(v)
-    return v
-  }
-
-  /** Antrean pasien dokter yang login (GET /api/v1/queues — server hanya mengirim pasien dokter akun ini). */
-  const syncDokter = async (date = todayStr()) => {
-    const out: any[] = []
-    let skipped = 0
-    for (let page = 1; page <= 20; page++) {
-      const r = await apiPage('/api/v1/queues', { query: { date, page, limit: 100 } })
-      for (const q of r.data) { const v = cacheTiket(q); if (v) out.push(v); else skipped++ }
-      if (!r.pagination?.has_next_page) break
-    }
-    // buang data pasien seadanya ("rm-…") dari versi sebelumnya yang sudah tergantikan pasien asli
-    if (db.patients.some((p: any) => String(p.id).startsWith('rm-'))) {
-      const dipakai = new Set(db.visits.map((v: any) => v.patientId))
-      db.patients = db.patients.filter((p: any) => !String(p.id).startsWith('rm-') || dipakai.has(p.id))
-    }
-    return { rows: out, skipped }
-  }
-
-  return { create, list, listView, syncDate, get, syncDokter }
+  return { create, list, listView, syncDate, get }
 }

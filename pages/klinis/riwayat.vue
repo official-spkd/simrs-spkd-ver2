@@ -3,6 +3,7 @@
 const route = useRoute()
 const { visit, patient } = useDb()
 const { isDokter, sync, rows } = useDokterQueue()
+const klinis = useKlinis()
 
 const id = ref(String(route.query.id || ''))
 const siap = ref(!!id.value)
@@ -14,6 +15,8 @@ onMounted(async () => {
       id.value = (rows.value.find((x: any) => x.status === 'dilayani') || rows.value[0])?.id || ''
     }
   }
+  // dibuka langsung lewat ?id= tanpa cache: ambil kunjungannya dari server
+  if (isDokter.value && id.value && !visit(id.value)) { try { await klinis.muat(id.value) } catch {} }
   siap.value = true
 })
 const v = computed(() => (id.value ? visit(id.value) : null))

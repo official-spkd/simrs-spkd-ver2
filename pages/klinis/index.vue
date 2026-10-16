@@ -5,8 +5,8 @@ const { user } = useAuth()
 const toast = useToast()
 const route = useRoute()
 
-// Akun dokter: antrean dari server (GET /api/v1/queues), dimuat ulang berkala.
-// Panggil / mulai periksa / SOAP masih lokal karena backend belum punya endpoint status poli.
+// Akun dokter: antrean dari server (GET /api/v1/examinations), dimuat ulang berkala; panggil / lewati /
+// mulai periksa lewat /api/v1/examinations/{id}/call|recall|skip|start.
 const { isDokter, tanggal, serverIds, syncErr, syncSkip, loading, sync, rows: semua, dokter, poliAktif } = useDokterQueue()
 
 const tick = ref(Date.now())
@@ -61,11 +61,28 @@ const tunggu = (v: any) => {
   return menitAntara(v.jamDaftar, v.jamMulai || undefined)
 }
 
-const panggil = (v: any) => toast.attempt(() => callPoli(v.id), `Memanggil ${v.antreanPoli.nomor} — tampil di layar ruang tunggu`)
-const ulang = (v: any) => toast.attempt(() => recallPoli(v.id), `Panggil ulang ${v.antreanPoli.nomor}`)
-const lewati = (v: any) => toast.attempt(() => skipPoli(v.id), `${v.antreanPoli.nomor} dilewati`)
-const mulai = (v: any) => {
-  if (toast.attempt(() => startExam(v.id), `Pemeriksaan ${v.antreanPoli.nomor} dimulai`)) navigateTo('/klinis/' + v.id)
+// Akun dokter lewat server; role lain (tanpa data dokter di server) tetap memakai antrean lokal.
+const klinis = useKlinis()
+const sibuk = ref(false)
+const aksi = async (server: () => Promise<any>, lokal: () => any, okMsg: string) => {
+  if (sibuk.value) return false
+  sibuk.value = true
+  try {
+    await (isDokter.value ? server() : lokal())
+    toast.ok(okMsg)
+    return true
+  } catch (e: any) {
+    toast.err(e.message)
+    return false
+  } finally {
+    sibuk.value = false
+  }
+}
+const panggil = (v: any) => aksi(() => klinis.panggil(v.id), () => callPoli(v.id), `Memanggil ${v.antreanPoli.nomor} — tampil di layar ruang tunggu`)
+const ulang = (v: any) => aksi(() => klinis.panggilUlang(v.id), () => recallPoli(v.id), `Panggil ulang ${v.antreanPoli.nomor}`)
+const lewati = (v: any) => aksi(() => klinis.lewati(v.id), () => skipPoli(v.id), `${v.antreanPoli.nomor} dilewati`)
+const mulai = async (v: any) => {
+  if (await aksi(() => klinis.mulaiPeriksa(v.id), () => startExam(v.id), `Pemeriksaan ${v.antreanPoli.nomor} dimulai`)) navigateTo('/klinis/' + v.id)
 }
 const subjudul = computed(() => (isDokter.value
   ? `Pasien yang ditugaskan ke ${poliAktif.value ? 'Poli ' + poliAktif.value.nama : 'poli Anda'} · ${dokter.value?.nama || user.value?.nama}`
@@ -142,11 +159,11 @@ const subjudul = computed(() => (isDokter.value
           <div><span class="badge b-teal">Antrean: {{ statusAntreanPoli(sel) }}</span></div>
           <div class="kl-actions">
             <template v-if="sel.status === 'terdaftar'">
-              <button class="btn" @click="panggil(sel)">Panggil Pasien</button>
-              <button class="btn btn-primary" @click="mulai(sel)">Mulai Periksa</button>
+              <button class="btn" :disabled="sibuk" @click="panggil(sel)">Panggil Pasien</button>
+              <button class="btn btn-primary" :disabled="sibuk" @click="mulai(sel)">Mulai Periksa</button>
               <NuxtLink :to="'/klinis/' + sel.id + '?tab=vital'" class="btn">{{ sel.antreanPoli.status === 'vital selesai' ? 'Lihat vital' : 'Isi vital & pengkajian' }}</NuxtLink>
-              <button class="btn" :disabled="sel.antreanPoli.status === 'dilewati'" @click="lewati(sel)">Lewati</button>
-              <button class="btn" :disabled="!sel.jamPanggil" @click="ulang(sel)">Panggil ulang</button>
+              <button class="btn" :disabled="sibuk || sel.antreanPoli.status === 'dilewati'" @click="lewati(sel)">Lewati</button>
+              <button class="btn" :disabled="sibuk || (sel.antreanPoli.server ? sel.antreanPoli.server !== 'Called' : !sel.jamPanggil)" @click="ulang(sel)">Panggil ulang</button>
             </template>
             <NuxtLink v-else-if="sel.status === 'dilayani'" :to="'/klinis/' + sel.id" class="btn btn-primary">Lanjutkan di workspace</NuxtLink>
             <NuxtLink v-else :to="'/klinis/' + sel.id" class="btn">Lihat workspace</NuxtLink>

@@ -3,6 +3,8 @@
 const route = useRoute()
 const router = useRouter()
 const { db, visit, patient, poli, doctor, latestVitals, getSoap, startExam, billItems } = useDb()
+const { isDokter } = useDokterQueue()
+const klinis = useKlinis()
 const toast = useToast()
 
 const id = computed(() => String(route.params.id))
@@ -10,6 +12,18 @@ const v = computed(() => visit(id.value))
 const pt = computed(() => (v.value ? patient(v.value.patientId) : null))
 const soap = computed(() => (v.value ? getSoap(id.value) : null))
 onMounted(() => { try { localStorage.setItem(KL_AKTIF_KEY, id.value) } catch {} })
+
+// Akun dokter: kunjungan, vital, SOAP, dan lampiran selalu dimuat dari server saat workspace dibuka.
+const memuat = ref(isDokter.value)
+const muatErr = ref('')
+const muat = async () => {
+  if (!isDokter.value) return
+  memuat.value = true
+  muatErr.value = ''
+  try { await klinis.muat(id.value) } catch (e: any) { muatErr.value = e.message } finally { memuat.value = false }
+}
+onMounted(muat)
+watch(id, muat)
 
 const TABS = [
   { key: 'ringkasan', label: 'Ringkasan' },
@@ -20,7 +34,7 @@ const TABS = [
   { key: 'lampiran', label: 'Lampiran' },
 ]
 const HEAD: Record<string, { code: string; title: string; sub: string }> = {
-  ringkasan: { code: 'KL-02', title: 'Workspace Pasien', sub: 'Ringkasan episode klinis · Data tersimpan lokal sebelum dikirim ke Satu Sehat' },
+  ringkasan: { code: 'KL-02', title: 'Workspace Pasien', sub: 'Ringkasan episode klinis · Data tersimpan di server SIMRS sebelum dikirim ke Satu Sehat' },
   vital: { code: 'KL-03', title: 'Vital Sign & Pengkajian Awal', sub: 'Pencatatan berversi oleh satu akun bersama Dokter / Perawat' },
   soap: { code: 'KL-04', title: 'Editor SOAP + Lampiran', sub: 'EMR rawat jalan · Diagnosis ICD-10 utama wajib sebelum tanda tangan' },
   order: { code: 'KL-05', title: 'Resep & Tindakan', sub: 'Item dicatat dalam Plan dan diteruskan sebagai tagihan sesuai tarif penjamin.' },
@@ -33,8 +47,8 @@ watch(() => route.query.tab, (k) => { const n = k ? String(k) : 'ringkasan'; if 
 const head = computed(() => HEAD[tab.value])
 
 const editable = computed(() => v.value?.status === 'dilayani')
-// pengkajian awal (KL-03) boleh diisi sebelum "Mulai periksa", selama kunjungan belum ditutup/dibatalkan
-const vitalEditable = computed(() => v.value?.status === 'terdaftar' || v.value?.status === 'dilayani')
+// pengkajian awal (KL-03) boleh diisi sebelum "Mulai periksa", selama kunjungan belum ditutup/dibatalkan dan SOAP belum dikunci
+const vitalEditable = computed(() => (v.value?.status === 'terdaftar' || v.value?.status === 'dilayani') && !soap.value?.signed)
 const readonlyLabel = computed(() => (v.value?.status === 'selesai' || v.value?.status === 'lunas' ? 'Kunjungan sudah selesai — mode baca.' : v.value?.status === 'dibatalkan' ? 'Kunjungan dibatalkan.' : ''))
 const vt = computed(() => latestVitals(id.value))
 const hasVital = computed(() => !!vt.value)
@@ -53,20 +67,31 @@ const angka = (n: any) => (n === null || n === undefined || n === '' ? '-' : Str
 const kontrol = computed(() => {
   if (v.value?.tglKontrol) return 'Kontrol · ' + fmtTglPanjang(v.value.tglKontrol).replace(/^\w+, /, '')
   const t = soap.value?.tindakLanjut
-  return t === 'kontrol' ? 'Kontrol · tanggal ditentukan saat tutup kunjungan' : t === 'rawat inap' ? 'Rujuk rawat inap (dicatat)' : t === 'ICU' ? 'Rujuk ICU (dicatat)' : 'Pulang'
+  return t === 'kontrol' ? 'Kontrol · tanggal belum diisi di SOAP' : t === 'rawat inap' ? 'Rujuk rawat inap (dicatat)' : t === 'ICU' ? 'Rujuk ICU (dicatat)' : 'Pulang'
 })
 const reservasiPasien = computed(() => db.reservations.filter((r: any) => r.patientId === v.value?.patientId).sort((a: any, b: any) => (a.tanggal < b.tanggal ? 1 : -1)))
 const showRsv = ref(false)
 
 const showClose = ref(false)
-const mulai = () => { toast.attempt(() => startExam(id.value), 'Pemeriksaan dimulai') }
+const mulai = async () => {
+  try {
+    await (isDokter.value ? klinis.mulaiPeriksa(id.value) : startExam(id.value))
+    toast.ok('Pemeriksaan dimulai')
+  } catch (e: any) { toast.err(e.message) }
+}
 const onClosed = () => { navigateTo('/klinis') }
 const goto = (k: string) => (tab.value = k)
-const lihat = (l: any) => (urlLampiran(l) ? window.open(urlLampiran(l), '_blank') : toast.warn('Pratinjau hanya tersedia pada sesi saat berkas diunggah (MVP menyimpan metadata).'))
+const lihat = async (l: any) => {
+  if (l.id) { try { await klinis.bukaLampiran(l.id) } catch (e: any) { toast.err(e.message) } return }
+  if (urlLampiran(l)) window.open(urlLampiran(l), '_blank')
+  else toast.warn('Pratinjau hanya tersedia pada sesi saat berkas diunggah (MVP menyimpan metadata).')
+}
 </script>
 
 <template>
-  <div v-if="v && pt">
+  <div v-if="memuat && !v" class="panel"><p class="muted">Memuat kunjungan…</p></div>
+  <div v-else-if="v && pt">
+    <p v-if="muatErr" class="alert err" role="alert" style="margin-bottom: 12px">Gagal memuat data terbaru dari server: {{ muatErr }}</p>
     <PageHead :code="head.code" role="Dokter / Perawat" :title="head.title" :subtitle="head.sub" />
 
     <PatientBanner :patient="pt" :visit="v" />
@@ -155,7 +180,7 @@ const lihat = (l: any) => (urlLampiran(l) ? window.open(urlLampiran(l), '_blank'
             <tr v-for="(l, i) in soap?.lampiran || []" :key="i">
               <td data-label="File">{{ l.nama }}</td>
               <td data-label="Ukuran">{{ (l.ukuran / 1024).toFixed(0) }} KB</td>
-              <td data-label="Status">Tersimpan lokal</td>
+              <td data-label="Status">{{ l.id ? 'Tersimpan di server' : 'Tersimpan lokal' }}</td>
               <td data-label="Dicatat">{{ fmtWaktu(l.at) }}</td>
               <td data-label="Aksi"><button class="btn btn-sm btn-ghost" @click="lihat(l)">Lihat</button></td>
             </tr>
@@ -185,6 +210,7 @@ const lihat = (l: any) => (urlLampiran(l) ? window.open(urlLampiran(l), '_blank'
   </div>
   <div v-else class="card">
     <h2>Kunjungan tidak ditemukan</h2>
+    <p v-if="muatErr" class="muted">{{ muatErr }}</p>
     <NuxtLink to="/klinis" class="btn">Kembali ke worklist</NuxtLink>
   </div>
 </template>

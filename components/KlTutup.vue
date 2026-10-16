@@ -3,6 +3,8 @@
 const props = defineProps<{ modelValue: boolean; visitId: string }>()
 const emit = defineEmits(['update:modelValue', 'closed'])
 const { db, visit, patient, getSoap, closeVisit, doctorsOfPoli, poli } = useDb()
+const { isDokter } = useDokterQueue()
+const klinis = useKlinis()
 const toast = useToast()
 
 const v = computed(() => visit(props.visitId))
@@ -17,7 +19,9 @@ watch(() => props.modelValue, (o) => {
   if (!o) return
   err.value = ''
   f.caraPulang = soap.value.tindakLanjut === 'kontrol' ? 'kontrol ulang' : soap.value.tindakLanjut === 'rawat inap' || soap.value.tindakLanjut === 'ICU' ? 'rawat inap' : 'pulang'
-  f.tglKontrol = ''; f.doctorIdKontrol = ''
+  // akun dokter: tanggal kontrol mengikuti SOAP yang sudah ditandatangani (disimpan server)
+  f.tglKontrol = isDokter.value ? soap.value.tglKontrol || '' : ''
+  f.doctorIdKontrol = ''
 })
 const blokir = computed(() => (!soap.value.diagUtama ? 'Belum ada diagnosis utama. Isi di tab SOAP.' : !soap.value.signed ? 'SOAP belum ditandatangani. Tanda tangani di tab SOAP.' : ''))
 
@@ -28,16 +32,28 @@ watch(sesi, (list) => {
 })
 const labelSesi = (d: any) => `${poli(d.poliId)?.kode} · ${d.nama} · ${d.sesi.mulai.replace(':', '.')}–${d.sesi.selesai.replace(':', '.')} · ${d.sesi.cuti && !d.sesi.cuti.penggantiId ? 'cuti' : 'sisa ' + d.sesi.sisa}`
 
-const tutup = () => {
+const menutup = ref(false)
+const tutup = async () => {
   err.value = ''
   if (f.caraPulang === 'kontrol ulang') {
-    if (!f.tglKontrol) { err.value = 'Tanggal kontrol wajib diisi'; return }
-    if (!f.doctorIdKontrol) { err.value = 'Tidak ada sesi praktik dengan kuota tersisa pada tanggal kontrol'; return }
+    if (!f.tglKontrol) { err.value = isDokter.value ? 'Tanggal kontrol belum diisi di SOAP. Tambahkan lewat SOAP sebelum ditandatangani.' : 'Tanggal kontrol wajib diisi'; return }
+    // jadwal praktik masih lokal: akun dokter tetap boleh menutup kunjungan walau sesi lokal tidak ditemukan
+    if (!f.doctorIdKontrol && !isDokter.value) { err.value = 'Tidak ada sesi praktik dengan kuota tersisa pada tanggal kontrol'; return }
   }
+  menutup.value = true
+  let peringatan = ''
   try {
-    closeVisit(props.visitId, { ...f })
-  } catch (e: any) { err.value = e.message; toast.err(e.message); return }
-  toast.ok(f.caraPulang === 'kontrol ulang' ? 'Kunjungan ditutup — reservasi kontrol dibuat, tagihan dikirim ke kasir' : 'Kunjungan ditutup — tagihan dikirim ke kasir')
+    if (isDokter.value) peringatan = (await klinis.tutup(props.visitId, { kondisiPulang: f.kondisiPulang, caraPulang: f.caraPulang, doctorIdKontrol: f.doctorIdKontrol || v.value.doctorId })).peringatan
+    else closeVisit(props.visitId, { ...f })
+  } catch (e: any) {
+    err.value = e.message
+    toast.err(e.message)
+    return
+  } finally {
+    menutup.value = false
+  }
+  if (peringatan) toast.warn(`Kunjungan ditutup, tetapi ${f.caraPulang === 'kontrol ulang' ? 'reservasi kontrol belum dibuat' : 'langkah lanjutan gagal'}: ${peringatan}. Hubungi Front Office.`)
+  else toast.ok(f.caraPulang === 'kontrol ulang' ? 'Kunjungan ditutup — reservasi kontrol dibuat, tagihan dikirim ke kasir' : 'Kunjungan ditutup — tagihan dikirim ke kasir')
   emit('update:modelValue', false)
   emit('closed')
 }
@@ -77,7 +93,7 @@ const tutup = () => {
       <p class="hint" style="margin: -8px 0 0">Cara pulang: pulang / kontrol ulang / rujuk RS lain / rawat inap (hanya dicatat pada MVP).</p>
 
       <div v-if="f.caraPulang === 'kontrol ulang'" class="form-grid">
-        <div class="field"><label class="req" for="tk">Tanggal kontrol</label><input id="tk" v-model="f.tglKontrol" class="input" type="date" :min="addDays(todayStr(), 1)" :max="addDays(todayStr(), 30)"></div>
+        <div class="field"><label class="req" for="tk">Tanggal kontrol</label><input id="tk" v-model="f.tglKontrol" class="input" type="date" :min="addDays(todayStr(), 1)" :max="addDays(todayStr(), 30)" :disabled="isDokter"><span v-if="isDokter" class="hint">Dari SOAP yang sudah ditandatangani.</span></div>
         <div class="field"><label for="sk">Sesi reservasi kontrol</label>
           <select id="sk" v-model="f.doctorIdKontrol" class="select" :disabled="!sesi.length">
             <option v-if="!f.tglKontrol" value="">Pilih tanggal kontrol dahulu</option>
@@ -93,7 +109,7 @@ const tutup = () => {
     </div>
     <template #footer>
       <button class="btn" @click="emit('update:modelValue', false)">Batal</button>
-      <button class="btn btn-primary" :disabled="!!blokir" @click="tutup">Tutup kunjungan</button>
+      <button class="btn btn-primary" :disabled="!!blokir || menutup" @click="tutup">{{ menutup ? 'Menutup…' : 'Tutup kunjungan' }}</button>
     </template>
   </AppModal>
 </template>
